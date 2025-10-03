@@ -108,7 +108,8 @@ int main(void)
             musicVolume = rui_panel_slider_call(24.0f, musicVolume, 0.0f, 1.0f, on_volume_changed, NULL); // adjust demo value
             rui_panel_label(TextFormat("%.2f", musicVolume));
 
-            musicEnabled = rui_panel_toggle_call(musicEnabled, "Enable music", on_music_toggled, NULL);
+            const char *musicLabel = musicEnabled ? "Disable music" : "Enable music";
+            musicEnabled = rui_panel_toggle_call(musicEnabled, musicLabel, on_music_toggled, NULL);
 
             rui_panel_spacer(12.0f);
 

@@ -30,6 +30,61 @@ typedef struct rui_text_input { // state for single-line text input
     float blinkTimer; // timer used for caret blinking
 } rui_text_input;
 
+typedef enum rui_align { // alignment options for panel content
+    RUI_ALIGN_LEFT = 0, // place content against the left padding
+    RUI_ALIGN_CENTER = 1, // center content within the panel interior
+    RUI_ALIGN_RIGHT = 2 // place content against the right padding
+} rui_align;
+
+typedef struct rui_panel_style { // bundle configurable panel styling data
+    Color bodyColor; // fill color for the panel body (alpha included)
+    Color titleColor; // fill color for the optional title bar (alpha included)
+    Color borderColor; // outline color for the panel border
+    Color titleTextColor; // color used when drawing the panel title text
+    Color labelColor; // default text color for labels inside panels
+    rui_align contentAlign; // horizontal alignment for auto-laid-out widgets
+} rui_panel_style;
+
+typedef struct rui_button_style { // configurable button colours
+    Color normal; // default fill
+    Color hover; // fill when hovered
+    Color pressed; // fill when pressed
+    Color border; // outline colour
+    Color text; // label colour
+} rui_button_style;
+
+typedef struct rui_slider_style { // configurable slider colours
+    Color track; // background track colour
+    Color knob; // idle knob colour
+    Color knobHover; // knob colour while hovered
+    Color knobDrag; // knob colour while dragging
+} rui_slider_style;
+
+typedef struct rui_toggle_style { // configurable toggle/checkbox colours
+    Color border; // default border
+    Color borderHover; // border when hovered
+    Color fill; // interior when inactive
+    Color fillActive; // interior when active
+    Color label; // label text colour
+} rui_toggle_style;
+
+typedef struct rui_text_input_style { // colours for text inputs
+    Color background; // box fill
+    Color border; // default border
+    Color borderHover; // border when hovered
+    Color borderActive; // border when focused
+    Color text; // text colour
+    Color caret; // caret colour
+} rui_text_input_style;
+
+typedef struct rui_theme { // aggregate theme configuration
+    rui_panel_style panel; // default panel styling
+    rui_button_style button; // shared button styling
+    rui_slider_style slider; // slider colours
+    rui_toggle_style toggle; // toggle colours
+    rui_text_input_style textInput; // text input colours
+} rui_theme;
+
 // --- API ---
 void rui_begin_frame(void); // prepare UI input state for the frame
 void rui_label(const char *text, Vector2 pos); // draw a basic label at a position
@@ -48,29 +103,98 @@ bool rui_toggle_call(Rectangle bounds, bool value, const char *label, void (*cal
 rui_text_input rui_text_input_init(char *buffer, int capacity); // initialize text input state
 bool rui_text_input_box(Rectangle bounds, rui_text_input *input); // draw text box and handle input
 bool rui_keyboard_captured(void); // true when UI currently owns keyboard focus
+rui_theme rui_theme_default(void); // fetch library default theme values
+void rui_theme_set(const rui_theme *theme); // replace global theme with custom settings
+const rui_theme *rui_theme_get(void); // get pointer to current theme
+void rui_theme_reset(void); // restore theme to defaults
+void rui_set_default_panel_style(rui_panel_style style); // override default panel style
+rui_panel_style rui_get_default_panel_style(void); // read current default panel style
 
-typedef enum rui_align { // alignment options for panel content
-    RUI_ALIGN_LEFT = 0, // place content against the left padding
-    RUI_ALIGN_CENTER = 1, // center content within the panel interior
-    RUI_ALIGN_RIGHT = 2 // place content against the right padding
-} rui_align;
+static const rui_theme RUI_THEME_DEFAULT = {
+    .panel = {
+        .bodyColor = {240, 240, 240, 255},
+        .titleColor = {200, 200, 200, 255},
+        .borderColor = {80, 80, 80, 255},
+        .titleTextColor = {0, 0, 0, 255},
+        .labelColor = {64, 64, 64, 255},
+        .contentAlign = RUI_ALIGN_LEFT
+    },
+    .button = {
+        .normal = {200, 200, 200, 255},
+        .hover = {180, 180, 220, 255},
+        .pressed = {160, 160, 200, 255},
+        .border = {80, 80, 80, 255},
+        .text = {0, 0, 0, 255}
+    },
+    .slider = {
+        .track = {180, 180, 180, 255},
+        .knob = {140, 140, 180, 255},
+        .knobHover = {160, 160, 220, 255},
+        .knobDrag = {120, 120, 200, 255}
+    },
+    .toggle = {
+        .border = {100, 100, 100, 255},
+        .borderHover = {60, 60, 60, 255},
+        .fill = {230, 230, 230, 255},
+        .fillActive = {120, 170, 220, 255},
+        .label = {80, 80, 80, 255}
+    },
+    .textInput = {
+        .background = {245, 245, 245, 255},
+        .border = {110, 110, 140, 255},
+        .borderHover = {140, 140, 160, 255},
+        .borderActive = {80, 120, 200, 255},
+        .text = {70, 70, 90, 255},
+        .caret = {80, 80, 120, 255}
+    }
+};
 
-typedef struct rui_panel_style { // bundle configurable panel styling data
-    Color bodyColor; // fill color for the panel body (alpha included)
-    Color titleColor; // fill color for the optional title bar (alpha included)
-    Color borderColor; // outline color for the panel border
-    Color titleTextColor; // color used when drawing the panel title text
-    Color labelColor; // default text color for labels inside panels
-    rui_align contentAlign; // horizontal alignment for auto-laid-out widgets
-} rui_panel_style;
+static rui_theme rui_themeCurrent = {
+    .panel = {
+        .bodyColor = {240, 240, 240, 255},
+        .titleColor = {200, 200, 200, 255},
+        .borderColor = {80, 80, 80, 255},
+        .titleTextColor = {0, 0, 0, 255},
+        .labelColor = {64, 64, 64, 255},
+        .contentAlign = RUI_ALIGN_LEFT
+    },
+    .button = {
+        .normal = {200, 200, 200, 255},
+        .hover = {180, 180, 220, 255},
+        .pressed = {160, 160, 200, 255},
+        .border = {80, 80, 80, 255},
+        .text = {0, 0, 0, 255}
+    },
+    .slider = {
+        .track = {180, 180, 180, 255},
+        .knob = {140, 140, 180, 255},
+        .knobHover = {160, 160, 220, 255},
+        .knobDrag = {120, 120, 200, 255}
+    },
+    .toggle = {
+        .border = {100, 100, 100, 255},
+        .borderHover = {60, 60, 60, 255},
+        .fill = {230, 230, 230, 255},
+        .fillActive = {120, 170, 220, 255},
+        .label = {80, 80, 80, 255}
+    },
+    .textInput = {
+        .background = {245, 245, 245, 255},
+        .border = {110, 110, 140, 255},
+        .borderHover = {140, 140, 160, 255},
+        .borderActive = {80, 120, 200, 255},
+        .text = {70, 70, 90, 255},
+        .caret = {80, 80, 120, 255}
+    }
+};
 
-static const rui_panel_style RUI_PANEL_STYLE_DEFAULT = { // default fully opaque panel style
-    .bodyColor = {240, 240, 240, 255}, // light gray body background
-    .titleColor = {200, 200, 200, 255}, // medium gray title bar
-    .borderColor = {80, 80, 80, 255}, // dark gray border
-    .titleTextColor = {0, 0, 0, 255}, // black title text
-    .labelColor = {64, 64, 64, 255}, // dark gray default label text
-    .contentAlign = RUI_ALIGN_LEFT // left align widgets by default
+static rui_panel_style rui_panelStyleDefault = {
+    .bodyColor = {240, 240, 240, 255},
+    .titleColor = {200, 200, 200, 255},
+    .borderColor = {80, 80, 80, 255},
+    .titleTextColor = {0, 0, 0, 255},
+    .labelColor = {64, 64, 64, 255},
+    .contentAlign = RUI_ALIGN_LEFT
 };
 
 void rui_panel(Rectangle bounds, const char *title); // draw a static panel with the default style
@@ -145,6 +269,32 @@ static Color rui_fadeColor = {0, 0, 0, 255}; // overlay color (alpha overridden 
 static rui_text_input *rui_activeTextInput = NULL; // currently focused text input box
 static bool rui_keyboardCaptured = false; // true when UI takes keyboard focus
 
+rui_theme rui_theme_default(void) { // expose default theme values
+    return RUI_THEME_DEFAULT;
+}
+
+void rui_theme_set(const rui_theme *theme) { // replace current theme
+    if (!theme) return;
+    rui_themeCurrent = *theme;
+    rui_panelStyleDefault = theme->panel;
+}
+
+const rui_theme *rui_theme_get(void) { // access current theme pointer
+    return &rui_themeCurrent;
+}
+
+void rui_theme_reset(void) { // restore default theme
+    rui_theme_set(&RUI_THEME_DEFAULT);
+}
+
+void rui_set_default_panel_style(rui_panel_style style) { // override default panel style independent of theme
+    rui_panelStyleDefault = style;
+}
+
+rui_panel_style rui_get_default_panel_style(void) { // read current default panel style
+    return rui_panelStyleDefault;
+}
+
 void rui_begin_frame(void) { // grab per-frame input state
     rui_mouse = GetMousePosition(); // cache mouse coordinates
     rui_mousePressed = IsMouseButtonPressed(MOUSE_LEFT_BUTTON); // see if left button pressed
@@ -176,19 +326,20 @@ void rui_label_color(const char *text, Vector2 pos, Color color) { // draw text 
 }
 
 bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
+    const rui_button_style *bs = &rui_themeCurrent.button; // fetch theme colours
     bool hovered = CheckCollisionPointRec(rui_mouse, bounds); // check if mouse over button
     bool pressed = hovered && rui_mousePressed; // register press only when hovered
 
-    Color bg = hovered ? (Color){180, 180, 220, 255} : (Color){200, 200, 200, 255}; // choose hover background color
-    if (pressed) bg = (Color){160, 160, 200, 255}; // darken when actively pressed
+    Color bg = hovered ? bs->hover : bs->normal; // choose hover background color
+    if (pressed) bg = bs->pressed; // darken when actively pressed
 
     DrawRectangleRec(bounds, bg); // fill button background
-    DrawRectangleLinesEx(bounds, 2, DARKGRAY); // outline button for contrast
+    DrawRectangleLinesEx(bounds, 2, bs->border); // outline button for contrast
 
     int textWidth = MeasureText(text, 20); // width of label at font size
     int textX = bounds.x + (bounds.width - textWidth)/2; // center text horizontally
     int textY = bounds.y + (bounds.height - 20)/2; // center text vertically
-    DrawText(text, textX, textY, 20, BLACK); // draw button label in black
+    DrawText(text, textX, textY, 20, bs->text); // draw button label
 
     return pressed; // return true when clicked
 }
@@ -232,7 +383,7 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) 
     float trackHeight = 6.0f; // thickness of slider track
     float trackY = bounds.y + (bounds.height - trackHeight) * 0.5f; // center track vertically
     Rectangle track = { bounds.x, trackY, bounds.width, trackHeight }; // track rectangle
-    DrawRectangleRec(track, (Color){180, 180, 180, 255}); // draw track background
+    DrawRectangleRec(track, rui_themeCurrent.slider.track); // draw track background
 
     float knobWidth = 12.0f; // knob width
     float travel = bounds.width - knobWidth; // horizontal travel distance for knob
@@ -264,9 +415,10 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) 
         knob.x = bounds.x + t * travel; // update knob position
     }
 
-    Color knobColor = dragging ? (Color){120, 120, 200, 255} : (hovered ? (Color){160, 160, 220, 255} : (Color){140, 140, 180, 255}); // knob tint
+    Color knobColor = dragging ? rui_themeCurrent.slider.knobDrag
+                      : (hovered ? rui_themeCurrent.slider.knobHover : rui_themeCurrent.slider.knob); // knob tint
     DrawRectangleRec(knob, knobColor); // draw knob
-    DrawRectangleLinesEx(knob, 2, DARKGRAY); // outline knob
+    DrawRectangleLinesEx(knob, 2, rui_themeCurrent.button.border); // outline knob using button border colour
 
     return clampedValue; // return potentially updated value
 }
@@ -281,14 +433,13 @@ bool rui_toggle(Rectangle bounds, bool value, const char *label) { // draw check
     bool toggled = hovered && rui_mousePressed; // flip state only on press while hovered
     if (toggled) value = !value; // toggle value on click
 
-    Color border = hovered ? DARKGRAY : (Color){100, 100, 100, 255}; // border tint when hovered
+    Color border = hovered ? rui_themeCurrent.toggle.borderHover : rui_themeCurrent.toggle.border; // border tint when hovered
     DrawRectangleLinesEx(box, 2, border); // outline checkbox
-    if (value) { // fill check when active
-        DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, (Color){120, 170, 220, 255});
-    }
+    Color fillColor = value ? rui_themeCurrent.toggle.fillActive : rui_themeCurrent.toggle.fill; // fill based on state
+    DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, fillColor);
 
     if (label) { // draw optional label text
-        rui_label_color(label, (Vector2){ textBounds.x, textBounds.y + (bounds.height - 20.0f) * 0.5f }, DARKGRAY);
+        rui_label_color(label, (Vector2){ textBounds.x, textBounds.y + (bounds.height - 20.0f) * 0.5f }, rui_themeCurrent.toggle.label);
     }
 
     return value; // return possibly toggled value
@@ -438,13 +589,14 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
         input->blinkTimer = 0.0f; // reset when not active
     }
 
-    Color borderColor = (rui_activeTextInput == input) ? (Color){80, 120, 200, 255}
-                        : (hovered ? (Color){140, 140, 160, 255} : (Color){110, 110, 140, 255}); // highlight when focused
-    DrawRectangleRec(bounds, (Color){245, 245, 245, 255}); // draw background
+    const rui_text_input_style *tis = &rui_themeCurrent.textInput; // theme colours
+    Color borderColor = (rui_activeTextInput == input) ? tis->borderActive
+                        : (hovered ? tis->borderHover : tis->border); // highlight when focused
+    DrawRectangleRec(bounds, tis->background); // draw background
     DrawRectangleLinesEx(bounds, 2, borderColor); // draw border
 
     Vector2 textPos = { bounds.x + 4, bounds.y + (bounds.height - 20.0f) * 0.5f }; // baseline for text
-    rui_label_color(input->buffer ? input->buffer : "", textPos, DARKGRAY); // draw text contents
+    rui_label_color(input->buffer ? input->buffer : "", textPos, tis->text); // draw text contents
 
     if (rui_activeTextInput == input) { // draw caret when active
         float caretX = textPos.x;
@@ -456,7 +608,7 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
         }
 
         if (fmodf(input->blinkTimer, 1.0f) < 0.5f) { // blink on for half the time
-            DrawRectangle((int)caretX, (int)textPos.y, 2, 20, (Color){80, 80, 120, 255});
+            DrawRectangle((int)caretX, (int)textPos.y, 2, 20, tis->caret);
         }
     }
 
@@ -505,7 +657,7 @@ void rui_draw_fade(void) { // draw fade overlay if alpha greater than zero
 
 // --- Manual Panel ---
 void rui_panel(Rectangle bounds, const char *title) { // draw basic panel using default style
-    rui_panel_ex(bounds, title, RUI_PANEL_STYLE_DEFAULT); // forward to full implementation with default style
+    rui_panel_ex(bounds, title, rui_panelStyleDefault); // forward to full implementation with default style
 }
 
 void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style) { // draw a static panel shell with style
@@ -523,7 +675,7 @@ void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style) { 
 
 // --- Auto-layout + Scrollable Panels ---
 void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable) { // start a managed panel with default style
-    rui_panel_begin_ex(bounds, title, scrollable, RUI_PANEL_STYLE_DEFAULT); // call extended version with default style
+    rui_panel_begin_ex(bounds, title, scrollable, rui_panelStyleDefault); // call extended version with default style
 }
 
 void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style) { // start panel with custom style
