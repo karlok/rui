@@ -19,6 +19,16 @@
 
 #include "raylib.h" // pull in core raylib drawing/input API
 #include "raymath.h"   // for Clamp() helper function
+#include <math.h> // for fmodf used in caret blinking
+
+typedef struct rui_text_input { // state for single-line text input
+    char *buffer; // pointer to caller-provided character buffer
+    int capacity; // capacity of buffer including terminating null
+    int length; // current length of text (excluding null)
+    int cursor; // caret index within text
+    bool active; // whether this input currently has focus
+    float blinkTimer; // timer used for caret blinking
+} rui_text_input;
 
 // --- API ---
 void rui_begin_frame(void); // prepare UI input state for the frame
@@ -35,6 +45,9 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue);
 float rui_slider_call(Rectangle bounds, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData); // slider that notifies callback
 bool rui_toggle(Rectangle bounds, bool value, const char *label); // checkbox-style toggle
 bool rui_toggle_call(Rectangle bounds, bool value, const char *label, void (*callback)(bool, void *), void *userData); // toggle with callback
+rui_text_input rui_text_input_init(char *buffer, int capacity); // initialize text input state
+bool rui_text_input_box(Rectangle bounds, rui_text_input *input); // draw text box and handle input
+bool rui_keyboard_captured(void); // true when UI currently owns keyboard focus
 
 typedef enum rui_align { // alignment options for panel content
     RUI_ALIGN_LEFT = 0, // place content against the left padding
@@ -76,6 +89,7 @@ float rui_panel_slider(float height, float value, float minValue, float maxValue
 float rui_panel_slider_call(float height, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData); // panel slider with callback
 bool rui_panel_toggle(bool value, const char *label); // toggle integrated with panel layout
 bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool, void *), void *userData); // panel toggle with callback
+bool rui_panel_text_input(float height, rui_text_input *input); // text input integrated with panel layout
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -122,6 +136,8 @@ static float rui_fadeTargetAlpha = 0.0f; // target alpha to reach at end of fade
 static float rui_fadeDuration = 0.0f; // total animation time in seconds
 static float rui_fadeElapsed = 0.0f; // elapsed time since fade start
 static Color rui_fadeColor = {0, 0, 0, 255}; // overlay color (alpha overridden per frame)
+static rui_text_input *rui_activeTextInput = NULL; // currently focused text input box
+static bool rui_keyboardCaptured = false; // true when UI takes keyboard focus
 
 void rui_begin_frame(void) { // grab per-frame input state
     rui_mouse = GetMousePosition(); // cache mouse coordinates
@@ -266,6 +282,163 @@ bool rui_toggle_call(Rectangle bounds, bool value, const char *label, void (*cal
         callback(newValue, userData); // pass new state to user handler
     }
     return newValue; // return current toggle state
+}
+
+rui_text_input rui_text_input_init(char *buffer, int capacity) { // convenience initializer for text input state
+    rui_text_input input = {0}; // zero initialize struct
+    input.buffer = buffer; // assign caller buffer
+    input.capacity = capacity; // set capacity
+    if (buffer && capacity > 0) { // ensure buffer valid
+        input.length = (int)TextLength(buffer); // pre-populate length from existing text
+        if (input.length >= capacity) { // clamp length to capacity - 1
+            input.length = capacity - 1;
+            buffer[input.length] = '\0';
+        }
+        input.cursor = input.length; // place cursor at end of text
+    }
+    input.active = false; // start unfocused
+    input.blinkTimer = 0.0f; // reset blink timer
+    return input; // return initialized struct
+}
+
+static void rui_text_input_set_cursor(rui_text_input *input, int position) { // helper to clamp cursor position
+    if (!input) return;
+    if (position < 0) position = 0;
+    if (position > input->length) position = input->length;
+    input->cursor = position;
+}
+
+static void rui_text_input_insert_char(rui_text_input *input, int character) { // insert Unicode codepoint into buffer
+    if (!input || !input->buffer) return;
+    if (character == 0 || character == 127) return; // ignore null and delete key
+    if (character < 32) return; // skip non-printable control characters
+    if (input->length + 1 >= input->capacity) return; // avoid overflow
+
+    for (int i = input->length; i >= input->cursor; --i) { // shift characters to make space
+        input->buffer[i + 1] = input->buffer[i];
+    }
+
+    input->buffer[input->cursor] = (char)character; // insert character at cursor
+    input->length++;
+    rui_text_input_set_cursor(input, input->cursor + 1); // advance cursor
+}
+
+static void rui_text_input_backspace(rui_text_input *input) { // handle backspace deletion
+    if (!input || input->cursor <= 0) return;
+    for (int i = input->cursor - 1; i <= input->length; ++i) { // shift characters left
+        input->buffer[i] = input->buffer[i + 1];
+    }
+    input->length--;
+    rui_text_input_set_cursor(input, input->cursor - 1); // move cursor back
+}
+
+static void rui_text_input_delete(rui_text_input *input) { // handle delete key
+    if (!input || input->cursor >= input->length) return;
+    for (int i = input->cursor; i <= input->length; ++i) {
+        input->buffer[i] = input->buffer[i + 1];
+    }
+    input->length--;
+}
+
+static void rui_text_input_set_active(rui_text_input *input) { // centralize active input management
+    if (rui_activeTextInput && rui_activeTextInput != input) {
+        rui_activeTextInput->active = false; // deactivate previous input
+    }
+    rui_activeTextInput = input; // store new active input (may be NULL)
+    rui_keyboardCaptured = (input != NULL); // update capture flag
+    if (input) input->active = true; // mark new input as active
+}
+
+bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text box and handle typing
+    if (!input || !input->buffer || input->capacity <= 1) return false;
+
+    bool hovered = CheckCollisionPointRec(rui_mouse, bounds); // detect mouse over box
+    if (rui_mousePressed && hovered) { // focus when clicked
+        rui_text_input_set_active(input);
+        int relativeX = (int)(rui_mouse.x - bounds.x - 4); // rough cursor placement
+        int caret = input->length;
+        int accumulated = 0;
+        for (int i = 0; i < input->length; ++i) {
+            int charWidth = MeasureTextEx(GetFontDefault(), (const char[]){input->buffer[i], '\0'}, 20, 1).x; // measure char
+            if (accumulated + charWidth * 0.5f >= relativeX) { caret = i; break; }
+            accumulated += charWidth;
+        }
+        rui_text_input_set_cursor(input, caret);
+    } else if (rui_mousePressed && !hovered) {
+        if (rui_activeTextInput == input) { // clicking elsewhere defocuses
+            input->active = false;
+            rui_text_input_set_active(NULL);
+        }
+    }
+
+    bool changed = false;
+    if (rui_activeTextInput == input) { // handle keyboard input only when active
+        int key = GetKeyPressed();
+        while (key > 0) { // process key presses
+            if (key == KEY_BACKSPACE) {
+                int prevLen = input->length;
+                rui_text_input_backspace(input);
+                changed |= (prevLen != input->length);
+            } else if (key == KEY_DELETE) {
+                int prevLen = input->length;
+                rui_text_input_delete(input);
+                changed |= (prevLen != input->length);
+            } else if (key == KEY_LEFT) {
+                rui_text_input_set_cursor(input, input->cursor - 1);
+            } else if (key == KEY_RIGHT) {
+                rui_text_input_set_cursor(input, input->cursor + 1);
+            } else if (key == KEY_HOME) {
+                rui_text_input_set_cursor(input, 0);
+            } else if (key == KEY_END) {
+                rui_text_input_set_cursor(input, input->length);
+            } else if (key == KEY_ESCAPE || key == KEY_ENTER || key == KEY_KP_ENTER) {
+                input->active = false;
+                rui_text_input_set_active(NULL); // exit focus on escape/enter
+            }
+            key = GetKeyPressed();
+        }
+
+        int ch = GetCharPressed();
+        while (ch > 0) { // process character input
+            int prevLen = input->length;
+            rui_text_input_insert_char(input, ch);
+            changed |= (prevLen != input->length);
+            ch = GetCharPressed();
+        }
+
+        input->blinkTimer += GetFrameTime(); // advance caret blink
+        if (input->blinkTimer > 1.0f) input->blinkTimer -= 1.0f; // wrap timer
+    } else {
+        input->blinkTimer = 0.0f; // reset when not active
+    }
+
+    Color borderColor = (rui_activeTextInput == input) ? (Color){80, 120, 200, 255}
+                        : (hovered ? (Color){140, 140, 160, 255} : (Color){110, 110, 140, 255}); // highlight when focused
+    DrawRectangleRec(bounds, (Color){245, 245, 245, 255}); // draw background
+    DrawRectangleLinesEx(bounds, 2, borderColor); // draw border
+
+    Vector2 textPos = { bounds.x + 4, bounds.y + (bounds.height - 20.0f) * 0.5f }; // baseline for text
+    rui_label_color(input->buffer ? input->buffer : "", textPos, DARKGRAY); // draw text contents
+
+    if (rui_activeTextInput == input) { // draw caret when active
+        float caretX = textPos.x;
+        if (input->cursor > 0) {
+            char temp = input->buffer[input->cursor];
+            input->buffer[input->cursor] = '\0';
+            caretX += MeasureText(input->buffer, 20);
+            input->buffer[input->cursor] = temp;
+        }
+
+        if (fmodf(input->blinkTimer, 1.0f) < 0.5f) { // blink on for half the time
+            DrawRectangle((int)caretX, (int)textPos.y, 2, 20, (Color){80, 80, 120, 255});
+        }
+    }
+
+    return changed; // report whether text changed this frame
+}
+
+bool rui_keyboard_captured(void) { // let callers know UI owns keyboard this frame
+    return rui_keyboardCaptured;
 }
 
 static void rui_fade_start(unsigned char targetAlpha, float duration) { // internal helper to configure fade animation
@@ -525,6 +698,31 @@ bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool,
         callback(newValue, userData); // notify about state change
     }
     return newValue; // return toggle state
+}
+
+bool rui_panel_text_input(float height, rui_text_input *input) { // integrate text input with panel layout
+    if (!rui_panelActive) return false; // ignore when panel inactive
+
+    float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // usable width
+    float targetWidth = rui_panelContentWidth; // requested width
+    if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp width
+
+    float x = rui_panelInnerLeft; // base x coordinate
+    if (targetWidth < innerWidth) {
+        if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+            x = rui_panelInnerLeft + (innerWidth - targetWidth) * 0.5f;
+        } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+            x = rui_panelInnerRight - targetWidth;
+        }
+    }
+
+    Rectangle bounds = { x, rui_panelCursorY - rui_scrollOffset, targetWidth, height }; // text box bounds
+    bool changed = rui_text_input_box(bounds, input); // draw input and handle typing
+
+    rui_panelCursorY += height + rui_panelSpacing; // advance cursor after input field
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+
+    return changed; // return whether text changed
 }
 
 void rui_panel_end(void) { // finish panel rendering and handle scrollbars

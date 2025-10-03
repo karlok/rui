@@ -38,6 +38,8 @@ int main(void)
     float speed = 200.0f;
     float musicVolume = 0.5f; // sample slider-controlled value
     bool musicEnabled = true;
+    char nameBuffer[32] = "Player";
+    rui_text_input nameInput = rui_text_input_init(nameBuffer, sizeof(nameBuffer));
 
     // Main game loop
     while (!WindowShouldClose())
@@ -45,13 +47,17 @@ int main(void)
         // Update
         float dt = GetFrameTime();
 
-        if (IsKeyDown(KEY_RIGHT)) player.x += speed * dt;
-        if (IsKeyDown(KEY_LEFT)) player.x -= speed * dt;
-        if (IsKeyDown(KEY_UP)) player.y -= speed * dt;
-        if (IsKeyDown(KEY_DOWN)) player.y += speed * dt;
+        bool uiCapturesKeyboard = rui_keyboard_captured();
 
-        if (IsKeyPressed(KEY_F)) rui_fade_out(0.6f); // trigger fade to black
-        if (IsKeyPressed(KEY_G)) rui_fade_in(0.6f); // trigger fade back in
+        if (!uiCapturesKeyboard) {
+            if (IsKeyDown(KEY_RIGHT)) player.x += speed * dt;
+            if (IsKeyDown(KEY_LEFT)) player.x -= speed * dt;
+            if (IsKeyDown(KEY_UP)) player.y -= speed * dt;
+            if (IsKeyDown(KEY_DOWN)) player.y += speed * dt;
+
+            if (IsKeyPressed(KEY_F)) rui_fade_out(0.6f); // trigger fade to black when UI not capturing input
+            if (IsKeyPressed(KEY_G)) rui_fade_in(0.6f); // trigger fade back in
+        }
 
         // Draw
         BeginDrawing();
@@ -85,6 +91,11 @@ int main(void)
                 .contentAlign = RUI_ALIGN_LEFT // keep list content left aligned
             };
             rui_panel_begin_ex((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true, listStyle);
+
+            rui_panel_label("Player Name");
+            if (rui_panel_text_input(26.0f, &nameInput)) {
+                printf("Name %s\n", nameBuffer);
+            }
 
             rui_panel_spacer(12.0f);
             rui_panel_label("Music Volume");
