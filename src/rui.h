@@ -25,6 +25,13 @@ void rui_begin_frame(void); // prepare UI input state for the frame
 void rui_label(const char *text, Vector2 pos); // draw a basic label at a position
 void rui_label_color(const char *text, Vector2 pos, Color color); // draw a label with explicit color
 bool rui_button(const char *text, Rectangle bounds); // draw button and report click
+bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *), void *userData); // button that invokes callback when pressed
+
+typedef enum rui_align { // alignment options for panel content
+    RUI_ALIGN_LEFT = 0, // place content against the left padding
+    RUI_ALIGN_CENTER = 1, // center content within the panel interior
+    RUI_ALIGN_RIGHT = 2 // place content against the right padding
+} rui_align;
 
 typedef struct rui_panel_style { // bundle configurable panel styling data
     Color bodyColor; // fill color for the panel body (alpha included)
@@ -32,6 +39,7 @@ typedef struct rui_panel_style { // bundle configurable panel styling data
     Color borderColor; // outline color for the panel border
     Color titleTextColor; // color used when drawing the panel title text
     Color labelColor; // default text color for labels inside panels
+    rui_align contentAlign; // horizontal alignment for auto-laid-out widgets
 } rui_panel_style;
 
 static const rui_panel_style RUI_PANEL_STYLE_DEFAULT = { // default fully opaque panel style
@@ -39,7 +47,8 @@ static const rui_panel_style RUI_PANEL_STYLE_DEFAULT = { // default fully opaque
     .titleColor = {200, 200, 200, 255}, // medium gray title bar
     .borderColor = {80, 80, 80, 255}, // dark gray border
     .titleTextColor = {0, 0, 0, 255}, // black title text
-    .labelColor = {64, 64, 64, 255} // dark gray default label text
+    .labelColor = {64, 64, 64, 255}, // dark gray default label text
+    .contentAlign = RUI_ALIGN_LEFT // left align widgets by default
 };
 
 void rui_panel(Rectangle bounds, const char *title); // draw a static panel with the default style
@@ -49,8 +58,11 @@ void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style); /
 void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable); // start auto-layout panel with default style
 void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style); // start panel with explicit style
 bool rui_panel_button(const char *text, float height); // layout-aware button inside current panel
+bool rui_panel_button_call(const char *text, float height, void (*callback)(void *), void *userData); // panel button with callback helper
 void rui_panel_label(const char *text); // layout-aware label using panel style
 void rui_panel_label_color(const char *text, Color color); // layout-aware label with explicit color
+void rui_panel_spacer(float height); // advance layout cursor by a vertical gap
+void rui_panel_set_content_width(float width); // set desired width for upcoming widgets (0 = full width)
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -81,8 +93,13 @@ static rui_panel_style rui_currentPanelStyle = { // active style for panel-drive
     .titleColor = {200, 200, 200, 255}, // default title color
     .borderColor = {80, 80, 80, 255}, // default border
     .titleTextColor = {0, 0, 0, 255}, // default title text color
-    .labelColor = {64, 64, 64, 255} // default label text color
+    .labelColor = {64, 64, 64, 255}, // default label text color
+    .contentAlign = RUI_ALIGN_LEFT // default alignment state
 };
+static float rui_panelInnerLeft = 0.0f; // cached inner left edge for content placement
+static float rui_panelInnerRight = 0.0f; // cached inner right edge for content placement
+static float rui_panelContentWidth = 0.0f; // target width for auto-layout widgets
+static float rui_scrollOffsetBeforePanel = 0.0f; // backup scroll offset before panel begins
 
 void rui_begin_frame(void) { // grab per-frame input state
     rui_mouse = GetMousePosition(); // cache mouse coordinates
@@ -117,6 +134,14 @@ bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
     return pressed; // return true when clicked
 }
 
+bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *), void *userData) { // draw button and fire callback
+    bool pressed = rui_button(text, bounds); // reuse core button drawing logic
+    if (pressed && callback) { // invoke user callback only when pressed and provided
+        callback(userData); // call user-supplied function with context pointer
+    }
+    return pressed; // propagate pressed state to caller
+}
+
 // --- Manual Panel ---
 void rui_panel(Rectangle bounds, const char *title) { // draw basic panel using default style
     rui_panel_ex(bounds, title, RUI_PANEL_STYLE_DEFAULT); // forward to full implementation with default style
@@ -147,6 +172,15 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
     rui_panelActive = true; // mark panel as active for child widgets
     rui_panelScrollable = scrollable; // store whether scrolling is enabled
     rui_currentPanelStyle = style; // store style for child widgets rendered this frame
+    rui_scrollOffsetBeforePanel = rui_scrollOffset; // remember incoming scroll offset so it can be restored for other panels
+
+    float scrollbarWidth = scrollable ? 12.0f : 0.0f; // reserve space for scrollbar when needed
+    rui_panelInnerLeft = rui_currentPanel.x + rui_panelPadding; // compute inner left boundary
+    rui_panelInnerRight = rui_currentPanel.x + rui_currentPanel.width - rui_panelPadding - scrollbarWidth; // inner right boundary after padding and scrollbar
+    if (rui_panelInnerRight < rui_panelInnerLeft) { // guard against inverted bounds
+        rui_panelInnerRight = rui_panelInnerLeft; // collapse to avoid negative widths
+    }
+    rui_panelContentWidth = rui_panelInnerRight - rui_panelInnerLeft; // default content width spans full interior
 
     float viewHeight = bounds.height - 30.0f; // compute visible height excluding header
     if (scrollable) { // only read scroll input for scrollable panels
@@ -161,8 +195,8 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
         } else if (rui_hasPrevContent) { // if previous content was smaller, reset offset
             rui_scrollOffset = 0; // snap back to top when nothing to scroll
         }
-    } else { // non-scrollable panels always stay at top
-        rui_scrollOffset = 0; // ensure no offset leaks between panels
+    } else { // non-scrollable panels temporarily reset offset during their draw
+        rui_scrollOffset = 0; // use zero offset for content placement
     }
 
     rui_panel_ex(bounds, title, style); // draw panel chrome before clipping contents
@@ -173,10 +207,23 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
 bool rui_panel_button(const char *text, float height) { // add button within active panel
     if (!rui_panelActive) return false; // guard when called outside panel pair
 
+    float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // effective interior width
+    float targetWidth = rui_panelContentWidth; // requested width for widgets
+    if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp width to interior
+
+    float x = rui_panelInnerLeft; // default to left alignment
+    if (targetWidth < innerWidth) { // adjust based on alignment when there is spare space
+        if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+            x = rui_panelInnerLeft + (innerWidth - targetWidth) * 0.5f; // center within interior
+        } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+            x = rui_panelInnerRight - targetWidth; // stick to right edge
+        }
+    }
+
     Rectangle r = { // compute button rectangle inside panel
-        rui_currentPanel.x + rui_panelPadding, // apply horizontal padding
+        x, // horizontal placement based on alignment
         rui_panelCursorY - rui_scrollOffset, // subtract scroll to position correctly
-        rui_currentPanel.width - rui_panelPadding*2 - (rui_panelScrollable ? 12 : 0), // reduce width for padding and scrollbar
+        targetWidth, // width respects alignment settings
         height // use provided height for button box
     };
 
@@ -186,6 +233,14 @@ bool rui_panel_button(const char *text, float height) { // add button within act
     return rui_button(text, r); // draw button and return click state
 }
 
+bool rui_panel_button_call(const char *text, float height, void (*callback)(void *), void *userData) { // panel-aware button that fires callback
+    bool pressed = rui_panel_button(text, height); // draw button via layout helper
+    if (pressed && callback) { // fire callback when pressed
+        callback(userData); // forward user data pointer to callback
+    }
+    return pressed; // surface pressed status to caller
+}
+
 void rui_panel_label(const char *text) { // add label within active panel using style color
     rui_panel_label_color(text, rui_currentPanelStyle.labelColor); // defer to color-aware helper with style default
 }
@@ -193,13 +248,54 @@ void rui_panel_label(const char *text) { // add label within active panel using 
 void rui_panel_label_color(const char *text, Color color) { // add label within active panel using explicit color
     if (!rui_panelActive) return; // ignore calls when no panel is active
 
+    float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // width available inside panel
+    float targetWidth = rui_panelContentWidth; // requested content width
+    if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp to interior
+
+    float containerX = rui_panelInnerLeft; // default placement starts at inner left
+    if (targetWidth < innerWidth) { // adjust container placement when width narrower than available
+        if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+            containerX = rui_panelInnerLeft + (innerWidth - targetWidth) * 0.5f; // center container
+        } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+            containerX = rui_panelInnerRight - targetWidth; // anchor to right
+        }
+    }
+
+    int textWidth = MeasureText(text, 20); // pixel width of label text
+    float textX = containerX; // default left alignment
+    if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+        float offset = (targetWidth - (float)textWidth) * 0.5f; // center text inside container
+        if (offset < 0.0f) offset = 0.0f; // prevent negative offset when text wider than container
+        textX = containerX + offset; // apply centering offset
+    } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+        float offset = targetWidth - (float)textWidth; // align text against right edge
+        if (offset < 0.0f) offset = 0.0f; // clamp when text wider than container
+        textX = containerX + offset; // place text near right boundary
+    }
+
     DrawText(text, // render label text within panel
-             (int)(rui_currentPanel.x + rui_panelPadding), // offset text from left padding
+             (int)textX, // horizontal position after alignment adjustments
              (int)(rui_panelCursorY - rui_scrollOffset), // adjust for scroll offset
              20, color); // draw label using requested color
 
     rui_panelCursorY += 20.0f + rui_panelSpacing; // move layout cursor past label height
     rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // refresh content height after label
+}
+
+void rui_panel_spacer(float height) { // insert vertical space inside active panel
+    if (!rui_panelActive) return; // only operate inside a panel
+    rui_panelCursorY += height; // advance layout cursor by requested gap
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height after spacer
+}
+
+void rui_panel_set_content_width(float width) { // override width used for subsequent widgets
+    if (width <= 0.0f) { // zero or negative restores full interior width
+        rui_panelContentWidth = rui_panelInnerRight - rui_panelInnerLeft; // reset to full width
+    } else {
+        float maxWidth = rui_panelInnerRight - rui_panelInnerLeft; // maximum allowed width inside panel
+        if (width > maxWidth) width = maxWidth; // clamp to interior width
+        rui_panelContentWidth = width; // store new target width
+    }
 }
 
 void rui_panel_end(void) { // finish panel rendering and handle scrollbars
@@ -253,12 +349,19 @@ void rui_panel_end(void) { // finish panel rendering and handle scrollbars
             // ✅ Final clamp for both drag + wheel
             rui_scrollOffset = Clamp(rui_scrollOffset, 0, maxOffset); // enforce valid offset after interactions
         } else {
-            rui_scrollOffset = 0; // reset scroll when no scrollbar is needed
+            if (rui_panelScrollable) { // scrollable panel with no overflow resets offset
+                rui_scrollOffset = 0; // keep offset zero when content fits
+            } else { // restore prior offset after non-scrollable panels so other panels retain their position
+                rui_scrollOffset = rui_scrollOffsetBeforePanel; // reinstate offset saved at begin
+            }
         }
 
-        rui_prevContentHeight = rui_contentHeight; // store current content height for next frame
-        rui_hasPrevContent = true; // mark that we now have previous content data
+        if (rui_panelScrollable) { // only update prev height for scrollable panels
+            rui_prevContentHeight = rui_contentHeight; // store current content height for next frame
+            rui_hasPrevContent = true; // mark that we now have previous content data
+        }
         rui_panelActive = false; // clear active flag until next panel begin
+        rui_panelContentWidth = 0.0f; // reset content width override after finishing panel
     }
 }
 

@@ -4,6 +4,12 @@
 #define RUI_IMPLEMENTATION
 #include "rui.h"
 
+static void on_menu_item(void *ctx) // callback fired when list button clicked
+{
+    int index = ctx ? *(int *)ctx : -1; // read item index passed via user data
+    printf("Clicked %d\n", index); // print selection to console for demo
+}
+
 int main(void)
 {
     // Initialization
@@ -43,10 +49,12 @@ int main(void)
                 .titleColor = { 20, 40, 90, 255 }, // deeper header tone (unused without title)
                 .borderColor = { 255, 200, 30, 255 }, // high-contrast border
                 .titleTextColor = { 255, 255, 255, 255 }, // white title text if added later
-                .labelColor = { 255, 255, 255, 255 } // prefer white labels for contrast
+                .labelColor = { 255, 255, 255, 255 }, // prefer white labels for contrast
+                .contentAlign = RUI_ALIGN_LEFT // left aligns label within the panel
             };
-            rui_panel_ex(infoPanel, NULL, infoStyle); // draw translucent panel without title
-            rui_label_color("Hello there", (Vector2){ infoPanel.x + 12, infoPanel.y + 36 }, WHITE);
+            rui_panel_begin_ex(infoPanel, NULL, false, infoStyle); // begin auto-layout panel with custom style
+            rui_panel_label_color("Hello there", WHITE); // centered label using panel alignment
+            rui_panel_end();
 
             // Scrollable panel with many, many buttons
             rui_panel_style listStyle = {
@@ -54,14 +62,14 @@ int main(void)
                 .titleColor = { 190, 190, 190, 200 }, // semi-transparent title bar
                 .borderColor = { 80, 80, 80, 255 }, // classic dark border
                 .titleTextColor = { 40, 40, 40, 255 }, // dark heading text
-                .labelColor = { 30, 30, 30, 255 } // panel labels lean darker for contrast
+                .labelColor = { 30, 30, 30, 255 }, // panel labels lean darker for contrast
+                .contentAlign = RUI_ALIGN_LEFT // keep list content left aligned
             };
             rui_panel_begin_ex((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true, listStyle);
 
             for (int i = 0; i < 20; i++) {
-                if (rui_panel_button(TextFormat("Item %d", i+1), 30)) { // use TextFormat from raylib to build custom button label
-                    printf("Clicked %d\n", i+1); // debug print to ensure it's working
-                }
+                int itemIndex = i + 1; // capture button index for callback context
+                rui_panel_button_call(TextFormat("Item %d", itemIndex), 30, on_menu_item, &itemIndex); // invoke callback helper
             }
 
             rui_panel_end();
