@@ -32,6 +32,9 @@ void rui_fade_in(float duration); // start fade to transparent overlay
 bool rui_fade_active(void); // report if fade animation currently running
 void rui_draw_fade(void); // draw overlay if fade alpha > 0
 float rui_slider(Rectangle bounds, float value, float minValue, float maxValue); // horizontal slider control
+float rui_slider_call(Rectangle bounds, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData); // slider that notifies callback
+bool rui_toggle(Rectangle bounds, bool value, const char *label); // checkbox-style toggle
+bool rui_toggle_call(Rectangle bounds, bool value, const char *label, void (*callback)(bool, void *), void *userData); // toggle with callback
 
 typedef enum rui_align { // alignment options for panel content
     RUI_ALIGN_LEFT = 0, // place content against the left padding
@@ -70,6 +73,9 @@ void rui_panel_label_color(const char *text, Color color); // layout-aware label
 void rui_panel_spacer(float height); // advance layout cursor by a vertical gap
 void rui_panel_set_content_width(float width); // set desired width for upcoming widgets (0 = full width)
 float rui_panel_slider(float height, float value, float minValue, float maxValue); // slider using panel layout
+float rui_panel_slider_call(float height, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData); // panel slider with callback
+bool rui_panel_toggle(bool value, const char *label); // toggle integrated with panel layout
+bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool, void *), void *userData); // panel toggle with callback
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -221,6 +227,45 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) 
     DrawRectangleLinesEx(knob, 2, DARKGRAY); // outline knob
 
     return clampedValue; // return potentially updated value
+}
+
+bool rui_toggle(Rectangle bounds, bool value, const char *label) { // draw checkbox and label
+    float boxSize = bounds.height; // square checkbox fitting height
+    if (boxSize > bounds.width) boxSize = bounds.width; // ensure fits inside bounds
+    Rectangle box = { bounds.x, bounds.y, boxSize, boxSize }; // checkbox rectangle
+    Rectangle textBounds = { bounds.x + boxSize + 8.0f, bounds.y, bounds.width - boxSize - 8.0f, bounds.height }; // text area
+
+    bool hovered = CheckCollisionPointRec(rui_mouse, bounds); // hover when cursor over total bounds
+    bool toggled = hovered && rui_mousePressed; // flip state only on press while hovered
+    if (toggled) value = !value; // toggle value on click
+
+    Color border = hovered ? DARKGRAY : (Color){100, 100, 100, 255}; // border tint when hovered
+    DrawRectangleLinesEx(box, 2, border); // outline checkbox
+    if (value) { // fill check when active
+        DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, (Color){120, 170, 220, 255});
+    }
+
+    if (label) { // draw optional label text
+        rui_label_color(label, (Vector2){ textBounds.x, textBounds.y + (bounds.height - 20.0f) * 0.5f }, DARKGRAY);
+    }
+
+    return value; // return possibly toggled value
+}
+
+float rui_slider_call(Rectangle bounds, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData) { // slider with callback
+    float newValue = rui_slider(bounds, value, minValue, maxValue); // draw slider and get new value
+    if (callback && newValue != value) { // invoke callback when value changes
+        callback(newValue, userData); // pass updated value and user context
+    }
+    return newValue; // return current slider value
+}
+
+bool rui_toggle_call(Rectangle bounds, bool value, const char *label, void (*callback)(bool, void *), void *userData) { // toggle with callback
+    bool newValue = rui_toggle(bounds, value, label); // draw toggle and get new state
+    if (callback && newValue != value) { // invoke callback on state change
+        callback(newValue, userData); // pass new state to user handler
+    }
+    return newValue; // return current toggle state
 }
 
 static void rui_fade_start(unsigned char targetAlpha, float duration) { // internal helper to configure fade animation
@@ -438,6 +483,48 @@ float rui_panel_slider(float height, float value, float minValue, float maxValue
     rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
 
     return newValue; // return possibly updated value
+}
+
+float rui_panel_slider_call(float height, float value, float minValue, float maxValue, void (*callback)(float, void *), void *userData) { // panel slider helper with callback
+    float newValue = rui_panel_slider(height, value, minValue, maxValue); // reuse layout slider
+    if (callback && newValue != value) {
+        callback(newValue, userData); // notify user when value changes
+    }
+    return newValue; // return slider value
+}
+
+bool rui_panel_toggle(bool value, const char *label) { // toggle integrated with panel layout
+    if (!rui_panelActive) return value; // ignore when no panel active
+
+    float height = 24.0f; // default toggle height
+    float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // usable width
+    float targetWidth = rui_panelContentWidth; // requested width
+    if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp
+
+    float x = rui_panelInnerLeft; // base x position
+    if (targetWidth < innerWidth) {
+        if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+            x = rui_panelInnerLeft + (innerWidth - targetWidth) * 0.5f;
+        } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+            x = rui_panelInnerRight - targetWidth;
+        }
+    }
+
+    Rectangle bounds = { x, rui_panelCursorY - rui_scrollOffset, targetWidth, height }; // overall toggle bounds
+    bool newValue = rui_toggle(bounds, value, label); // draw toggle using base helper
+
+    rui_panelCursorY += height + rui_panelSpacing; // advance cursor
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+
+    return newValue; // return toggle state
+}
+
+bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool, void *), void *userData) { // panel toggle helper with callback
+    bool newValue = rui_panel_toggle(value, label); // draw toggle using layout helper
+    if (callback && newValue != value) {
+        callback(newValue, userData); // notify about state change
+    }
+    return newValue; // return toggle state
 }
 
 void rui_panel_end(void) { // finish panel rendering and handle scrollbars

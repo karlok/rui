@@ -10,6 +10,18 @@ static void on_menu_item(void *ctx) // callback fired when list button clicked
     printf("Clicked %d\n", index); // print selection to console for demo
 }
 
+static void on_volume_changed(float value, void *ctx) // slider callback demo
+{
+    (void)ctx; // unused context
+    printf("Volume %.2f\n", value); // print new value for demonstration
+}
+
+static void on_music_toggled(bool enabled, void *ctx) // toggle callback demo
+{
+    (void)ctx; // unused context
+    printf("Music %s\n", enabled ? "ON" : "OFF"); // report toggle state
+}
+
 int main(void)
 {
     // Initialization
@@ -25,6 +37,7 @@ int main(void)
     Rectangle player = { screenWidth/2.0f - 20, screenHeight/2.0f - 20, 40, 40 };
     float speed = 200.0f;
     float musicVolume = 0.5f; // sample slider-controlled value
+    bool musicEnabled = true;
 
     // Main game loop
     while (!WindowShouldClose())
@@ -73,15 +86,19 @@ int main(void)
             };
             rui_panel_begin_ex((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true, listStyle);
 
+            rui_panel_spacer(12.0f);
+            rui_panel_label("Music Volume");
+            musicVolume = rui_panel_slider_call(24.0f, musicVolume, 0.0f, 1.0f, on_volume_changed, NULL); // adjust demo value
+            rui_panel_label(TextFormat("%.2f", musicVolume));
+
+            musicEnabled = rui_panel_toggle_call(musicEnabled, "Enable music", on_music_toggled, NULL);
+
+            rui_panel_spacer(12.0f);
+
             for (int i = 0; i < 20; i++) {
                 int itemIndex = i + 1; // capture button index for callback context
                 rui_panel_button_call(TextFormat("Item %d", itemIndex), 30, on_menu_item, &itemIndex); // invoke callback helper
             }
-
-            rui_panel_spacer(12.0f);
-            rui_panel_label("Music Volume");
-            musicVolume = rui_panel_slider(24.0f, musicVolume, 0.0f, 1.0f); // adjust demo value
-            rui_panel_label(TextFormat("%.2f", musicVolume));
 
             rui_panel_end();
 
