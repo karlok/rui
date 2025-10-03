@@ -32,10 +32,31 @@ int main(void)
         BeginDrawing();
             ClearBackground(RAYWHITE);
 
+            DrawRectangleRec(player, BLUE);
+
             rui_begin_frame();
 
+            // simple panel with label
+            Rectangle infoPanel = { 400, 50, 200, 100 };
+            rui_panel_style infoStyle = {
+                .bodyColor = { 30, 60, 120, 230 }, // soft blue body background
+                .titleColor = { 20, 40, 90, 255 }, // deeper header tone (unused without title)
+                .borderColor = { 255, 200, 30, 255 }, // high-contrast border
+                .titleTextColor = { 255, 255, 255, 255 }, // white title text if added later
+                .labelColor = { 255, 255, 255, 255 } // prefer white labels for contrast
+            };
+            rui_panel_ex(infoPanel, NULL, infoStyle); // draw translucent panel without title
+            rui_label_color("Hello there", (Vector2){ infoPanel.x + 12, infoPanel.y + 36 }, WHITE);
+
             // Scrollable panel with many, many buttons
-            rui_panel_begin((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true);
+            rui_panel_style listStyle = {
+                .bodyColor = { 235, 235, 235, 220 }, // gentle fade for scroll body
+                .titleColor = { 190, 190, 190, 200 }, // semi-transparent title bar
+                .borderColor = { 80, 80, 80, 255 }, // classic dark border
+                .titleTextColor = { 40, 40, 40, 255 }, // dark heading text
+                .labelColor = { 30, 30, 30, 255 } // panel labels lean darker for contrast
+            };
+            rui_panel_begin_ex((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true, listStyle);
 
             for (int i = 0; i < 20; i++) {
                 if (rui_panel_button(TextFormat("Item %d", i+1), 30)) { // use TextFormat from raylib to build custom button label
@@ -44,8 +65,6 @@ int main(void)
             }
 
             rui_panel_end();
-
-            DrawRectangleRec(player, BLUE);
 
         EndDrawing();
     }
