@@ -90,6 +90,8 @@ float rui_panel_slider_call(float height, float value, float minValue, float max
 bool rui_panel_toggle(bool value, const char *label); // toggle integrated with panel layout
 bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool, void *), void *userData); // panel toggle with callback
 bool rui_panel_text_input(float height, rui_text_input *input); // text input integrated with panel layout
+bool rui_panel_begin_closable(Rectangle bounds, const char *title, bool scrollable, const char *closeLabel); // begin panel with close button, returns true when pressed
+bool rui_panel_begin_ex_closable(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, const char *closeLabel); // styled closable panel begin helper
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -105,6 +107,10 @@ static float rui_panelCursorY = 0.0f; // current y offset for auto-layout widget
 static float rui_panelPadding = 8.0f; // horizontal padding inside panels
 static float rui_panelSpacing = 6.0f; // vertical spacing between widgets
 static bool rui_panelActive = false; // flag to guard panel-only calls
+static bool rui_panelHasTitle = false; // indicates current panel has a title bar
+static bool rui_panelCloseRequested = false; // flag indicating we want to draw a close button
+static bool rui_panelClosePressed = false; // remembers if close button was clicked this frame
+static const char *rui_panelCloseLabel = NULL; // optional custom label for close button
 
 // Scroll state
 static bool rui_panelScrollable = false; // panel scrolling enabled flag
@@ -193,6 +199,26 @@ bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *
         callback(userData); // call user-supplied function with context pointer
     }
     return pressed; // propagate pressed state to caller
+}
+
+static bool rui_draw_close_button(Rectangle bounds, const char *label, Color borderColor) { // render close button in panel chrome
+    bool hovered = CheckCollisionPointRec(rui_mouse, bounds); // hover detection
+    bool pressed = hovered && rui_mousePressed; // click detection
+
+    Color base = hovered ? (Color){210, 80, 80, 255} : (Color){190, 60, 60, 255}; // background tint
+    if (pressed) base = (Color){150, 40, 40, 255}; // darker when pressed
+
+    DrawRectangleRec(bounds, base); // fill button
+    DrawRectangleLinesEx(bounds, 2, borderColor); // outline to match panel
+
+    const char *text = label ? label : "X"; // default label
+    int fontSize = 14;
+    int textWidth = MeasureText(text, fontSize);
+    int textX = (int)(bounds.x + (bounds.width - textWidth) * 0.5f);
+    int textY = (int)(bounds.y + (bounds.height - fontSize) * 0.5f);
+    DrawText(text, textX, textY, fontSize, WHITE); // draw label centered
+
+    return pressed; // signal click
 }
 
 float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) { // draw horizontal slider and return new value
@@ -507,6 +533,7 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
     rui_panelActive = true; // mark panel as active for child widgets
     rui_panelScrollable = scrollable; // store whether scrolling is enabled
     rui_currentPanelStyle = style; // store style for child widgets rendered this frame
+    rui_panelHasTitle = (title != NULL); // store whether title bar exists
     rui_scrollOffsetBeforePanel = rui_scrollOffset; // remember incoming scroll offset so it can be restored for other panels
 
     float scrollbarWidth = scrollable ? 12.0f : 0.0f; // reserve space for scrollbar when needed
@@ -535,6 +562,21 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
     }
 
     rui_panel_ex(bounds, title, style); // draw panel chrome before clipping contents
+
+    if (rui_panelCloseRequested && rui_panelHasTitle) { // optionally draw close button on title bar
+        float buttonSize = 18.0f;
+        Rectangle closeBounds = {
+            bounds.x + bounds.width - buttonSize - 6.0f,
+            bounds.y + 3.0f,
+            buttonSize,
+            buttonSize
+        };
+        rui_panelClosePressed = rui_draw_close_button(closeBounds, rui_panelCloseLabel, style.borderColor);
+    } else {
+        rui_panelClosePressed = false;
+    }
+    rui_panelCloseRequested = false; // clear request flag
+    rui_panelCloseLabel = NULL; // reset custom label
 
     BeginScissorMode((int)bounds.x, (int)(bounds.y + 24), (int)bounds.width, (int)(bounds.height - 24)); // clip subsequent draws to panel interior
 }
@@ -723,6 +765,22 @@ bool rui_panel_text_input(float height, rui_text_input *input) { // integrate te
     rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
 
     return changed; // return whether text changed
+}
+
+bool rui_panel_begin_closable(Rectangle bounds, const char *title, bool scrollable, const char *closeLabel) { // begin default-styled closable panel
+    rui_panelCloseRequested = true;
+    rui_panelCloseLabel = closeLabel;
+    rui_panelClosePressed = false;
+    rui_panel_begin(bounds, title, scrollable);
+    return rui_panelClosePressed;
+}
+
+bool rui_panel_begin_ex_closable(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, const char *closeLabel) { // styled panel with close button
+    rui_panelCloseRequested = true;
+    rui_panelCloseLabel = closeLabel;
+    rui_panelClosePressed = false;
+    rui_panel_begin_ex(bounds, title, scrollable, style);
+    return rui_panelClosePressed;
 }
 
 void rui_panel_end(void) { // finish panel rendering and handle scrollbars

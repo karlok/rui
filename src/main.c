@@ -38,6 +38,7 @@ int main(void)
     float speed = 200.0f;
     float musicVolume = 0.5f; // sample slider-controlled value
     bool musicEnabled = true;
+    bool showInfoPanel = true;
     char nameBuffer[32] = "Player";
     rui_text_input nameInput = rui_text_input_init(nameBuffer, sizeof(nameBuffer));
 
@@ -67,19 +68,24 @@ int main(void)
 
             rui_begin_frame();
 
-            // simple panel with label
-            Rectangle infoPanel = { 400, 50, 200, 100 };
-            rui_panel_style infoStyle = {
-                .bodyColor = { 30, 60, 120, 230 }, // soft blue body background
-                .titleColor = { 20, 40, 90, 255 }, // deeper header tone (unused without title)
-                .borderColor = { 255, 200, 30, 255 }, // high-contrast border
-                .titleTextColor = { 255, 255, 255, 255 }, // white title text if added later
-                .labelColor = { 255, 255, 255, 255 }, // prefer white labels for contrast
-                .contentAlign = RUI_ALIGN_LEFT // left aligns label within the panel
-            };
-            rui_panel_begin_ex(infoPanel, NULL, false, infoStyle); // begin auto-layout panel with custom style
-            rui_panel_label_color("Hello there", WHITE); // centered label using panel alignment
-            rui_panel_end();
+            if (showInfoPanel) {
+                Rectangle infoPanel = { 400, 50, 200, 100 };
+                rui_panel_style infoStyle = {
+                    .bodyColor = { 30, 60, 120, 230 }, // soft blue body background
+                    .titleColor = { 20, 40, 90, 255 }, // deeper header tone
+                    .borderColor = { 255, 200, 30, 255 }, // high-contrast border
+                    .titleTextColor = { 255, 255, 255, 255 }, // white title text
+                    .labelColor = { 255, 255, 255, 255 }, // prefer white labels for contrast
+                    .contentAlign = RUI_ALIGN_LEFT // left aligns label within the panel
+                };
+                bool closed = rui_panel_begin_ex_closable(infoPanel, "Info", false, infoStyle, NULL);
+                if (closed) {
+                    showInfoPanel = false;
+                } else {
+                    rui_panel_label_color("Hello there", WHITE);
+                }
+                rui_panel_end();
+            }
 
             // Scrollable panel with many, many buttons
             rui_panel_style listStyle = {
