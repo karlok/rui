@@ -24,6 +24,7 @@ int main(void)
     // Game state
     Rectangle player = { screenWidth/2.0f - 20, screenHeight/2.0f - 20, 40, 40 };
     float speed = 200.0f;
+    float musicVolume = 0.5f; // sample slider-controlled value
 
     // Main game loop
     while (!WindowShouldClose())
@@ -76,6 +77,11 @@ int main(void)
                 int itemIndex = i + 1; // capture button index for callback context
                 rui_panel_button_call(TextFormat("Item %d", itemIndex), 30, on_menu_item, &itemIndex); // invoke callback helper
             }
+
+            rui_panel_spacer(12.0f);
+            rui_panel_label("Music Volume");
+            musicVolume = rui_panel_slider(24.0f, musicVolume, 0.0f, 1.0f); // adjust demo value
+            rui_panel_label(TextFormat("%.2f", musicVolume));
 
             rui_panel_end();
 

@@ -31,6 +31,7 @@ void rui_fade_out(float duration); // start fade to opaque overlay
 void rui_fade_in(float duration); // start fade to transparent overlay
 bool rui_fade_active(void); // report if fade animation currently running
 void rui_draw_fade(void); // draw overlay if fade alpha > 0
+float rui_slider(Rectangle bounds, float value, float minValue, float maxValue); // horizontal slider control
 
 typedef enum rui_align { // alignment options for panel content
     RUI_ALIGN_LEFT = 0, // place content against the left padding
@@ -68,6 +69,7 @@ void rui_panel_label(const char *text); // layout-aware label using panel style
 void rui_panel_label_color(const char *text, Color color); // layout-aware label with explicit color
 void rui_panel_spacer(float height); // advance layout cursor by a vertical gap
 void rui_panel_set_content_width(float width); // set desired width for upcoming widgets (0 = full width)
+float rui_panel_slider(float height, float value, float minValue, float maxValue); // slider using panel layout
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -169,6 +171,56 @@ bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *
         callback(userData); // call user-supplied function with context pointer
     }
     return pressed; // propagate pressed state to caller
+}
+
+float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) { // draw horizontal slider and return new value
+    if (maxValue < minValue) { // guard against inverted range
+        float tmp = minValue;
+        minValue = maxValue;
+        maxValue = tmp;
+    }
+
+    if ( bounds.width < 12.0f ) bounds.width = 12.0f; // ensure room for knob
+    float trackHeight = 6.0f; // thickness of slider track
+    float trackY = bounds.y + (bounds.height - trackHeight) * 0.5f; // center track vertically
+    Rectangle track = { bounds.x, trackY, bounds.width, trackHeight }; // track rectangle
+    DrawRectangleRec(track, (Color){180, 180, 180, 255}); // draw track background
+
+    float knobWidth = 12.0f; // knob width
+    float travel = bounds.width - knobWidth; // horizontal travel distance for knob
+    float clampedValue = Clamp(value, minValue, maxValue); // ensure value within range
+    float t = (maxValue - minValue) > 0 ? (clampedValue - minValue) / (maxValue - minValue) : 0.0f; // normalize value 0-1
+    float knobX = bounds.x + t * travel; // compute knob position
+    Rectangle knob = { knobX, bounds.y + (bounds.height - knobWidth) * 0.5f, knobWidth, knobWidth }; // knob bounds
+
+    bool hovered = CheckCollisionPointRec(rui_mouse, knob) || CheckCollisionPointRec(rui_mouse, track); // hover on knob or track
+    static bool dragging = false; // track global dragging state (single slider usage per frame)
+    static Rectangle activeSlider = {0}; // remember which slider is active
+
+    if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+        if (!dragging && hovered) { // start drag when first clicking on slider
+            dragging = true;
+            activeSlider = bounds;
+        }
+    } else {
+        dragging = false; // release drag when button up
+    }
+
+    if (dragging && activeSlider.x == bounds.x && activeSlider.y == bounds.y && activeSlider.width == bounds.width) {
+        float mouseT = (rui_mouse.x - bounds.x - knobWidth * 0.5f) / travel; // compute based on mouse x
+        if (travel <= 0) mouseT = 0;
+        if (mouseT < 0) mouseT = 0;
+        if (mouseT > 1) mouseT = 1;
+        clampedValue = minValue + mouseT * (maxValue - minValue); // update value based on mouse position
+        t = mouseT; // update normalized value for knob drawing
+        knob.x = bounds.x + t * travel; // update knob position
+    }
+
+    Color knobColor = dragging ? (Color){120, 120, 200, 255} : (hovered ? (Color){160, 160, 220, 255} : (Color){140, 140, 180, 255}); // knob tint
+    DrawRectangleRec(knob, knobColor); // draw knob
+    DrawRectangleLinesEx(knob, 2, DARKGRAY); // outline knob
+
+    return clampedValue; // return potentially updated value
 }
 
 static void rui_fade_start(unsigned char targetAlpha, float duration) { // internal helper to configure fade animation
@@ -361,6 +413,31 @@ void rui_panel_set_content_width(float width) { // override width used for subse
         if (width > maxWidth) width = maxWidth; // clamp to interior width
         rui_panelContentWidth = width; // store new target width
     }
+}
+
+float rui_panel_slider(float height, float value, float minValue, float maxValue) { // slider integrated with panel layout
+    if (!rui_panelActive) return value; // bail when no active panel
+
+    float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // available width
+    float targetWidth = rui_panelContentWidth; // requested widget width
+    if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp to interior
+
+    float x = rui_panelInnerLeft; // default placement at left
+    if (targetWidth < innerWidth) { // adjust for alignment when width smaller
+        if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
+            x = rui_panelInnerLeft + (innerWidth - targetWidth) * 0.5f; // center slider
+        } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
+            x = rui_panelInnerRight - targetWidth; // align to right edge
+        }
+    }
+
+    Rectangle bounds = { x, rui_panelCursorY - rui_scrollOffset, targetWidth, height }; // slider rectangle
+    float newValue = rui_slider(bounds, value, minValue, maxValue); // draw slider using core helper
+
+    rui_panelCursorY += height + rui_panelSpacing; // advance cursor after slider
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+
+    return newValue; // return possibly updated value
 }
 
 void rui_panel_end(void) { // finish panel rendering and handle scrollbars
