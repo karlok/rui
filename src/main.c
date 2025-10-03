@@ -19,6 +19,8 @@ int main(void)
     InitWindow(screenWidth, screenHeight, "Raylib UI Essentials");
     SetTargetFPS(60);
 
+    rui_fade_set_color((Color){0, 0, 0, 255}); // default fade overlay to black
+
     // Game state
     Rectangle player = { screenWidth/2.0f - 20, screenHeight/2.0f - 20, 40, 40 };
     float speed = 200.0f;
@@ -33,6 +35,9 @@ int main(void)
         if (IsKeyDown(KEY_LEFT)) player.x -= speed * dt;
         if (IsKeyDown(KEY_UP)) player.y -= speed * dt;
         if (IsKeyDown(KEY_DOWN)) player.y += speed * dt;
+
+        if (IsKeyPressed(KEY_F)) rui_fade_out(0.6f); // trigger fade to black
+        if (IsKeyPressed(KEY_G)) rui_fade_in(0.6f); // trigger fade back in
 
         // Draw
         BeginDrawing();
@@ -73,6 +78,8 @@ int main(void)
             }
 
             rui_panel_end();
+
+            rui_draw_fade();
 
         EndDrawing();
     }

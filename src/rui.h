@@ -26,6 +26,11 @@ void rui_label(const char *text, Vector2 pos); // draw a basic label at a positi
 void rui_label_color(const char *text, Vector2 pos, Color color); // draw a label with explicit color
 bool rui_button(const char *text, Rectangle bounds); // draw button and report click
 bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *), void *userData); // button that invokes callback when pressed
+void rui_fade_set_color(Color color); // choose overlay color for fade effect
+void rui_fade_out(float duration); // start fade to opaque overlay
+void rui_fade_in(float duration); // start fade to transparent overlay
+bool rui_fade_active(void); // report if fade animation currently running
+void rui_draw_fade(void); // draw overlay if fade alpha > 0
 
 typedef enum rui_align { // alignment options for panel content
     RUI_ALIGN_LEFT = 0, // place content against the left padding
@@ -101,9 +106,33 @@ static float rui_panelInnerRight = 0.0f; // cached inner right edge for content 
 static float rui_panelContentWidth = 0.0f; // target width for auto-layout widgets
 static float rui_scrollOffsetBeforePanel = 0.0f; // backup scroll offset before panel begins
 
+// Fade overlay state
+static bool rui_fadeActive = false; // true while fade animation runs
+static float rui_fadeAlpha = 0.0f; // current overlay alpha 0-255
+static float rui_fadeStartAlpha = 0.0f; // starting alpha for current fade
+static float rui_fadeTargetAlpha = 0.0f; // target alpha to reach at end of fade
+static float rui_fadeDuration = 0.0f; // total animation time in seconds
+static float rui_fadeElapsed = 0.0f; // elapsed time since fade start
+static Color rui_fadeColor = {0, 0, 0, 255}; // overlay color (alpha overridden per frame)
+
 void rui_begin_frame(void) { // grab per-frame input state
     rui_mouse = GetMousePosition(); // cache mouse coordinates
     rui_mousePressed = IsMouseButtonPressed(MOUSE_LEFT_BUTTON); // see if left button pressed
+
+    if (rui_fadeActive) { // advance fade animation when active
+        rui_fadeElapsed += GetFrameTime(); // accrue frame delta time
+        if (rui_fadeDuration <= 0.0f) { // handle zero duration edge case
+            rui_fadeAlpha = rui_fadeTargetAlpha; // jump straight to target alpha
+            rui_fadeActive = false; // stop animation immediately
+        } else {
+            float t = rui_fadeElapsed / rui_fadeDuration; // normalize elapsed time
+            if (t >= 1.0f) { // clamp when animation completes
+                t = 1.0f;
+                rui_fadeActive = false; // mark animation done
+            }
+            rui_fadeAlpha = rui_fadeStartAlpha + (rui_fadeTargetAlpha - rui_fadeStartAlpha) * t; // interpolate alpha
+        }
+    }
 }
 
 // --- Basic Widgets ---
@@ -140,6 +169,42 @@ bool rui_button_call(const char *text, Rectangle bounds, void (*callback)(void *
         callback(userData); // call user-supplied function with context pointer
     }
     return pressed; // propagate pressed state to caller
+}
+
+static void rui_fade_start(unsigned char targetAlpha, float duration) { // internal helper to configure fade animation
+    rui_fadeStartAlpha = rui_fadeAlpha; // remember current alpha as starting point
+    rui_fadeTargetAlpha = (float)targetAlpha; // store goal alpha value
+    rui_fadeDuration = duration; // store duration in seconds
+    rui_fadeElapsed = 0.0f; // reset elapsed timer
+    if (duration <= 0.0f) { // if duration zero or negative, snap immediately
+        rui_fadeAlpha = rui_fadeTargetAlpha;
+        rui_fadeActive = false;
+    } else {
+        rui_fadeActive = true; // mark fade as active
+    }
+}
+
+void rui_fade_set_color(Color color) { // choose color for fade overlay
+    rui_fadeColor = color; // store desired overlay tint (alpha controlled separately)
+}
+
+void rui_fade_out(float duration) { // start fade to fully opaque overlay
+    rui_fade_start(255, duration); // animate alpha to 255
+}
+
+void rui_fade_in(float duration) { // start fade back to transparent
+    rui_fade_start(0, duration); // animate alpha to 0
+}
+
+bool rui_fade_active(void) { // expose whether fade animation running
+    return rui_fadeActive; // simply return state flag
+}
+
+void rui_draw_fade(void) { // draw fade overlay if alpha greater than zero
+    if (rui_fadeAlpha <= 0.0f) return; // nothing to draw when alpha 0
+    Color overlay = rui_fadeColor; // copy base color
+    overlay.a = (unsigned char)Clamp(rui_fadeAlpha, 0.0f, 255.0f); // apply animated alpha
+    DrawRectangle(0, 0, GetRenderWidth(), GetRenderHeight(), overlay); // cover entire render surface
 }
 
 // --- Manual Panel ---
