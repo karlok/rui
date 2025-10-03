@@ -51,6 +51,7 @@ static bool rui_panelScrollable = false;
 static float rui_scrollOffset = 0;
 static float rui_contentHeight = 0;
 static float rui_prevContentHeight = 0;
+static bool rui_hasPrevContent = false;
 static bool rui_draggingScrollbar = false;
 static float rui_dragOffsetY = 0;
 
@@ -113,10 +114,9 @@ void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable) {
         }
 
         float maxOffset = rui_prevContentHeight - viewHeight;
-        if (maxOffset < 0) maxOffset = 0;
         if (maxOffset > 0) {
             rui_scrollOffset = Clamp(rui_scrollOffset, 0, maxOffset);
-        } else {
+        } else if (rui_hasPrevContent) {
             rui_scrollOffset = 0;
         }
     } else {
@@ -211,6 +211,7 @@ void rui_panel_end(void) {
         }
 
         rui_prevContentHeight = rui_contentHeight;
+        rui_hasPrevContent = true;
         rui_panelActive = false;
     }
 }
