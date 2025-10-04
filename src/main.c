@@ -33,6 +33,13 @@ int main(void)
 
     rui_fade_set_color((Color){0, 0, 0, 255}); // default fade overlay to black
 
+    rui_theme theme = rui_theme_default();
+    theme.textFont.size = 22;
+    theme.titleFont.size = 20;
+    rui_theme_set(&theme);
+
+    float nameFieldHeight = theme.textFont.size + 10.0f;
+
     // Game state
     Rectangle player = { screenWidth/2.0f - 20, screenHeight/2.0f - 20, 40, 40 };
     float speed = 200.0f;
@@ -99,7 +106,7 @@ int main(void)
             rui_panel_begin_ex((Rectangle) { 50, 50, 200, 300 }, "Many Buttons", true, listStyle);
 
             rui_panel_label("Player Name");
-            if (rui_panel_text_input(26.0f, &nameInput)) {
+            if (rui_panel_text_input(nameFieldHeight, &nameInput)) {
                 printf("Name %s\n", nameBuffer);
             }
 

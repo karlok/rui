@@ -68,6 +68,12 @@ typedef struct rui_toggle_style { // configurable toggle/checkbox colours
     Color label; // label text colour
 } rui_toggle_style;
 
+typedef struct rui_font_style { // font + sizing info
+    Font font; // raylib font handle
+    int size; // pixel size
+    float spacing; // extra spacing for DrawTextEx
+} rui_font_style;
+
 typedef struct rui_text_input_style { // colours for text inputs
     Color background; // box fill
     Color border; // default border
@@ -83,6 +89,8 @@ typedef struct rui_theme { // aggregate theme configuration
     rui_slider_style slider; // slider colours
     rui_toggle_style toggle; // toggle colours
     rui_text_input_style textInput; // text input colours
+    rui_font_style textFont; // main UI font
+    rui_font_style titleFont; // panel title font
 } rui_theme;
 
 // --- API ---
@@ -146,7 +154,9 @@ static const rui_theme RUI_THEME_DEFAULT = {
         .borderActive = {80, 120, 200, 255},
         .text = {70, 70, 90, 255},
         .caret = {80, 80, 120, 255}
-    }
+    },
+    .textFont = {0},
+    .titleFont = {0}
 };
 
 static rui_theme rui_themeCurrent = {
@@ -185,7 +195,9 @@ static rui_theme rui_themeCurrent = {
         .borderActive = {80, 120, 200, 255},
         .text = {70, 70, 90, 255},
         .caret = {80, 80, 120, 255}
-    }
+    },
+    .textFont = {0},
+    .titleFont = {0}
 };
 
 static rui_panel_style rui_panelStyleDefault = {
@@ -235,6 +247,7 @@ static bool rui_panelHasTitle = false; // indicates current panel has a title ba
 static bool rui_panelCloseRequested = false; // flag indicating we want to draw a close button
 static bool rui_panelClosePressed = false; // remembers if close button was clicked this frame
 static const char *rui_panelCloseLabel = NULL; // optional custom label for close button
+static float rui_panelHeaderHeight = 24.0f; // active panel header height
 
 // Scroll state
 static bool rui_panelScrollable = false; // panel scrolling enabled flag
@@ -268,15 +281,51 @@ static float rui_fadeElapsed = 0.0f; // elapsed time since fade start
 static Color rui_fadeColor = {0, 0, 0, 255}; // overlay color (alpha overridden per frame)
 static rui_text_input *rui_activeTextInput = NULL; // currently focused text input box
 static bool rui_keyboardCaptured = false; // true when UI takes keyboard focus
+static bool rui_themeInitialized = false; // tracks if theme defaults applied
+
+rui_theme rui_theme_default(void); // forward declare helper for header calc
+
+static float rui_calculate_header_height(bool hasTitle) {
+    const rui_font_style *titleFont = &rui_themeCurrent.titleFont;
+    float padding = 6.0f;
+    float height = hasTitle ? ((float)titleFont->size + padding * 2.0f)
+                            : ((float)rui_panelPadding + padding * 1.5f);
+    if (height < 18.0f) height = 18.0f;
+    return height;
+}
 
 rui_theme rui_theme_default(void) { // expose default theme values
-    return RUI_THEME_DEFAULT;
+    rui_theme theme = RUI_THEME_DEFAULT;
+    Font defaultFont = GetFontDefault();
+    theme.textFont.font = defaultFont;
+    theme.textFont.size = 20;
+    theme.textFont.spacing = 1.0f;
+    theme.titleFont = theme.textFont;
+    theme.titleFont.size = 18;
+    return theme;
+}
+
+static void rui_apply_font_defaults(rui_font_style *style, const rui_font_style *fallback) {
+    if (style->font.texture.id == 0) {
+        style->font = fallback ? fallback->font : GetFontDefault();
+    }
+    if (style->size <= 0) {
+        style->size = fallback ? fallback->size : 20;
+    }
+    if (style->spacing == 0.0f) {
+        style->spacing = fallback ? fallback->spacing : 1.0f;
+    }
 }
 
 void rui_theme_set(const rui_theme *theme) { // replace current theme
     if (!theme) return;
     rui_themeCurrent = *theme;
-    rui_panelStyleDefault = theme->panel;
+
+    rui_apply_font_defaults(&rui_themeCurrent.textFont, NULL);
+    rui_apply_font_defaults(&rui_themeCurrent.titleFont, &rui_themeCurrent.textFont);
+
+    rui_panelStyleDefault = rui_themeCurrent.panel;
+    rui_themeInitialized = true;
 }
 
 const rui_theme *rui_theme_get(void) { // access current theme pointer
@@ -284,7 +333,8 @@ const rui_theme *rui_theme_get(void) { // access current theme pointer
 }
 
 void rui_theme_reset(void) { // restore default theme
-    rui_theme_set(&RUI_THEME_DEFAULT);
+    rui_theme theme = rui_theme_default();
+    rui_theme_set(&theme);
 }
 
 void rui_set_default_panel_style(rui_panel_style style) { // override default panel style independent of theme
@@ -296,6 +346,10 @@ rui_panel_style rui_get_default_panel_style(void) { // read current default pane
 }
 
 void rui_begin_frame(void) { // grab per-frame input state
+    if (!rui_themeInitialized) {
+        rui_theme_reset();
+    }
+
     rui_mouse = GetMousePosition(); // cache mouse coordinates
     rui_mousePressed = IsMouseButtonPressed(MOUSE_LEFT_BUTTON); // see if left button pressed
 
@@ -318,11 +372,12 @@ void rui_begin_frame(void) { // grab per-frame input state
 // --- Basic Widgets ---
 
 void rui_label(const char *text, Vector2 pos) { // draw plain text label with default color
-    rui_label_color(text, pos, DARKGRAY); // delegate to colored label helper with default tone
+    rui_label_color(text, pos, rui_themeCurrent.panel.labelColor); // delegate to colored label helper with theme tone
 }
 
 void rui_label_color(const char *text, Vector2 pos, Color color) { // draw text label with supplied color
-    DrawText(text, (int)pos.x, (int)pos.y, 20, color); // render text in provided color at position
+    const rui_font_style *fs = &rui_themeCurrent.textFont;
+    DrawTextEx(fs->font, text, (Vector2){ pos.x, pos.y }, (float)fs->size, fs->spacing, color); // render text with themed font
 }
 
 bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
@@ -336,10 +391,11 @@ bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
     DrawRectangleRec(bounds, bg); // fill button background
     DrawRectangleLinesEx(bounds, 2, bs->border); // outline button for contrast
 
-    int textWidth = MeasureText(text, 20); // width of label at font size
-    int textX = bounds.x + (bounds.width - textWidth)/2; // center text horizontally
-    int textY = bounds.y + (bounds.height - 20)/2; // center text vertically
-    DrawText(text, textX, textY, 20, bs->text); // draw button label
+    const rui_font_style *fs = &rui_themeCurrent.textFont;
+    Vector2 textSize = MeasureTextEx(fs->font, text, (float)fs->size, fs->spacing);
+    float textX = bounds.x + (bounds.width - textSize.x) * 0.5f;
+    float textY = bounds.y + (bounds.height - textSize.y) * 0.5f;
+    DrawTextEx(fs->font, text, (Vector2){ textX, textY }, (float)fs->size, fs->spacing, bs->text); // draw button label
 
     return pressed; // return true when clicked
 }
@@ -363,11 +419,23 @@ static bool rui_draw_close_button(Rectangle bounds, const char *label, Color bor
     DrawRectangleLinesEx(bounds, 2, borderColor); // outline to match panel
 
     const char *text = label ? label : "X"; // default label
-    int fontSize = 14;
-    int textWidth = MeasureText(text, fontSize);
-    int textX = (int)(bounds.x + (bounds.width - textWidth) * 0.5f);
-    int textY = (int)(bounds.y + (bounds.height - fontSize) * 0.5f);
-    DrawText(text, textX, textY, fontSize, WHITE); // draw label centered
+    const rui_font_style *tf = &rui_themeCurrent.titleFont;
+    float baseSize = (float)tf->size;
+    if (baseSize <= 0.0f) baseSize = 18.0f;
+    float drawSize = baseSize;
+    if (drawSize > bounds.height - 4.0f) drawSize = bounds.height - 4.0f; // fit inside button
+    if (drawSize < 8.0f) drawSize = 8.0f;
+    float spacing = tf->spacing;
+    if (baseSize != drawSize) {
+        float scale = drawSize / baseSize;
+        spacing *= scale;
+    }
+    Vector2 textSize = MeasureTextEx(tf->font, text, drawSize, spacing);
+    Vector2 textPos = {
+        bounds.x + (bounds.width - textSize.x) * 0.5f,
+        bounds.y + (bounds.height - textSize.y) * 0.5f
+    };
+    DrawTextEx(tf->font, text, textPos, drawSize, spacing, WHITE); // draw label centered
 
     return pressed; // signal click
 }
@@ -439,7 +507,13 @@ bool rui_toggle(Rectangle bounds, bool value, const char *label) { // draw check
     DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, fillColor);
 
     if (label) { // draw optional label text
-        rui_label_color(label, (Vector2){ textBounds.x, textBounds.y + (bounds.height - 20.0f) * 0.5f }, rui_themeCurrent.toggle.label);
+        const rui_font_style *fs = &rui_themeCurrent.textFont;
+        Vector2 textSize = MeasureTextEx(fs->font, label, (float)fs->size, fs->spacing);
+        Vector2 pos = {
+            textBounds.x,
+            bounds.y + (bounds.height - textSize.y) * 0.5f
+        };
+        DrawTextEx(fs->font, label, pos, (float)fs->size, fs->spacing, rui_themeCurrent.toggle.label);
     }
 
     return value; // return possibly toggled value
@@ -529,14 +603,17 @@ static void rui_text_input_set_active(rui_text_input *input) { // centralize act
 bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text box and handle typing
     if (!input || !input->buffer || input->capacity <= 1) return false;
 
+    const rui_font_style *fs = &rui_themeCurrent.textFont;
+
     bool hovered = CheckCollisionPointRec(rui_mouse, bounds); // detect mouse over box
     if (rui_mousePressed && hovered) { // focus when clicked
         rui_text_input_set_active(input);
-        int relativeX = (int)(rui_mouse.x - bounds.x - 4); // rough cursor placement
+        float relativeX = rui_mouse.x - bounds.x - 4.0f; // rough cursor placement
         int caret = input->length;
-        int accumulated = 0;
+        float accumulated = 0.0f;
         for (int i = 0; i < input->length; ++i) {
-            int charWidth = MeasureTextEx(GetFontDefault(), (const char[]){input->buffer[i], '\0'}, 20, 1).x; // measure char
+            Vector2 glyph = MeasureTextEx(fs->font, (const char[]){input->buffer[i], '\0'}, (float)fs->size, fs->spacing);
+            float charWidth = glyph.x;
             if (accumulated + charWidth * 0.5f >= relativeX) { caret = i; break; }
             accumulated += charWidth;
         }
@@ -595,20 +672,26 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
     DrawRectangleRec(bounds, tis->background); // draw background
     DrawRectangleLinesEx(bounds, 2, borderColor); // draw border
 
-    Vector2 textPos = { bounds.x + 4, bounds.y + (bounds.height - 20.0f) * 0.5f }; // baseline for text
-    rui_label_color(input->buffer ? input->buffer : "", textPos, tis->text); // draw text contents
+    float textHeight = (float)fs->size;
+    Vector2 textPos = { bounds.x + 4.0f, bounds.y + (bounds.height - textHeight) * 0.5f }; // baseline for text
+    DrawTextEx(fs->font,
+               input->buffer ? input->buffer : "",
+               textPos,
+               (float)fs->size,
+               fs->spacing,
+               tis->text); // draw text contents
 
     if (rui_activeTextInput == input) { // draw caret when active
         float caretX = textPos.x;
         if (input->cursor > 0) {
             char temp = input->buffer[input->cursor];
             input->buffer[input->cursor] = '\0';
-            caretX += MeasureText(input->buffer, 20);
+            caretX += MeasureTextEx(fs->font, input->buffer, (float)fs->size, fs->spacing).x;
             input->buffer[input->cursor] = temp;
         }
 
         if (fmodf(input->blinkTimer, 1.0f) < 0.5f) { // blink on for half the time
-            DrawRectangle((int)caretX, (int)textPos.y, 2, 20, tis->caret);
+            DrawRectangle((int)caretX, (int)textPos.y, 2, fs->size, tis->caret);
         }
     }
 
@@ -661,15 +744,28 @@ void rui_panel(Rectangle bounds, const char *title) { // draw basic panel using 
 }
 
 void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style) { // draw a static panel shell with style
+    if (!rui_themeInitialized) {
+        rui_theme_reset();
+    }
+
     DrawRectangleRec(bounds, style.bodyColor); // paint panel background with styled color
     DrawRectangleLinesEx(bounds, 2, style.borderColor); // outline panel borders using styled color
 
     if (title) { // draw optional title bar when provided
-        int titleHeight = 24; // fixed title bar height
-        Rectangle titleBar = {bounds.x, bounds.y, bounds.width, titleHeight}; // rectangle for title area
-        DrawRectangleRec(titleBar, style.titleColor); // fill title bar with styled color
-        DrawRectangleLinesEx(titleBar, 1, style.borderColor); // outline title bar for separation
-        DrawText(title, (int)(bounds.x + 6), (int)(bounds.y + 4), 16, style.titleTextColor); // render title text using styled color
+        float headerHeight = rui_calculate_header_height(true);
+        Rectangle titleBar = { bounds.x, bounds.y, bounds.width, headerHeight };
+        DrawRectangleRec(titleBar, style.titleColor);
+        DrawRectangleLinesEx(titleBar, 1, style.borderColor);
+
+        const rui_font_style *tf = &rui_themeCurrent.titleFont;
+        float paddingY = (headerHeight - (float)tf->size) * 0.5f;
+        if (paddingY < 0.0f) paddingY = 0.0f;
+        DrawTextEx(tf->font,
+                   title,
+                   (Vector2){ bounds.x + 6.0f, bounds.y + paddingY },
+                   (float)tf->size,
+                   tf->spacing,
+                   style.titleTextColor);
     }
 }
 
@@ -679,13 +775,18 @@ void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable) { // 
 }
 
 void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style) { // start panel with custom style
+    if (!rui_themeInitialized) {
+        rui_theme_reset();
+    }
+
     rui_currentPanel = bounds; // remember panel rectangle for children
-    rui_panelCursorY = bounds.y + 30.0f; // initialize layout cursor beneath header
+    rui_panelHasTitle = (title != NULL); // store whether title bar exists
+    rui_panelHeaderHeight = rui_calculate_header_height(rui_panelHasTitle);
+    rui_panelCursorY = bounds.y + rui_panelHeaderHeight + rui_panelPadding; // initialize layout cursor beneath header
     rui_contentHeight = 0; // reset content height for this frame
     rui_panelActive = true; // mark panel as active for child widgets
     rui_panelScrollable = scrollable; // store whether scrolling is enabled
     rui_currentPanelStyle = style; // store style for child widgets rendered this frame
-    rui_panelHasTitle = (title != NULL); // store whether title bar exists
     rui_scrollOffsetBeforePanel = rui_scrollOffset; // remember incoming scroll offset so it can be restored for other panels
 
     float scrollbarWidth = scrollable ? 12.0f : 0.0f; // reserve space for scrollbar when needed
@@ -696,7 +797,7 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
     }
     rui_panelContentWidth = rui_panelInnerRight - rui_panelInnerLeft; // default content width spans full interior
 
-    float viewHeight = bounds.height - 30.0f; // compute visible height excluding header
+    float viewHeight = bounds.height - rui_panelHeaderHeight; // compute visible height excluding header
     if (scrollable) { // only read scroll input for scrollable panels
         float wheel = GetMouseWheelMove(); // get wheel delta for this frame
         if (CheckCollisionPointRec(rui_mouse, bounds)) { // ensure cursor is over panel
@@ -719,7 +820,7 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
         float buttonSize = 18.0f;
         Rectangle closeBounds = {
             bounds.x + bounds.width - buttonSize - 6.0f,
-            bounds.y + 3.0f,
+            bounds.y + (rui_panelHeaderHeight - buttonSize) * 0.5f,
             buttonSize,
             buttonSize
         };
@@ -730,7 +831,10 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
     rui_panelCloseRequested = false; // clear request flag
     rui_panelCloseLabel = NULL; // reset custom label
 
-    BeginScissorMode((int)bounds.x, (int)(bounds.y + 24), (int)bounds.width, (int)(bounds.height - 24)); // clip subsequent draws to panel interior
+    BeginScissorMode((int)bounds.x,
+                     (int)(bounds.y + rui_panelHeaderHeight),
+                     (int)bounds.width,
+                     (int)(bounds.height - rui_panelHeaderHeight)); // clip subsequent draws to panel interior
 }
 
 bool rui_panel_button(const char *text, float height) { // add button within active panel
@@ -757,7 +861,7 @@ bool rui_panel_button(const char *text, float height) { // add button within act
     };
 
     rui_panelCursorY += height + rui_panelSpacing; // advance layout cursor for next widget
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height with header baseline
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // update content height with header baseline
 
     return rui_button(text, r); // draw button and return click state
 }
@@ -790,31 +894,34 @@ void rui_panel_label_color(const char *text, Color color) { // add label within 
         }
     }
 
-    int textWidth = MeasureText(text, 20); // pixel width of label text
+    const rui_font_style *fs = &rui_themeCurrent.textFont;
+    Vector2 textSize = MeasureTextEx(fs->font, text, (float)fs->size, fs->spacing);
     float textX = containerX; // default left alignment
     if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_CENTER) {
-        float offset = (targetWidth - (float)textWidth) * 0.5f; // center text inside container
+        float offset = (targetWidth - textSize.x) * 0.5f; // center text inside container
         if (offset < 0.0f) offset = 0.0f; // prevent negative offset when text wider than container
         textX = containerX + offset; // apply centering offset
     } else if (rui_currentPanelStyle.contentAlign == RUI_ALIGN_RIGHT) {
-        float offset = targetWidth - (float)textWidth; // align text against right edge
+        float offset = targetWidth - textSize.x; // align text against right edge
         if (offset < 0.0f) offset = 0.0f; // clamp when text wider than container
         textX = containerX + offset; // place text near right boundary
     }
 
-    DrawText(text, // render label text within panel
-             (int)textX, // horizontal position after alignment adjustments
-             (int)(rui_panelCursorY - rui_scrollOffset), // adjust for scroll offset
-             20, color); // draw label using requested color
+    DrawTextEx(fs->font,
+               text,
+               (Vector2){ textX, rui_panelCursorY - rui_scrollOffset },
+               (float)fs->size,
+               fs->spacing,
+               color);
 
-    rui_panelCursorY += 20.0f + rui_panelSpacing; // move layout cursor past label height
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // refresh content height after label
+    rui_panelCursorY += textSize.y + rui_panelSpacing; // move layout cursor past label height
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // refresh content height after label
 }
 
 void rui_panel_spacer(float height) { // insert vertical space inside active panel
     if (!rui_panelActive) return; // only operate inside a panel
     rui_panelCursorY += height; // advance layout cursor by requested gap
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height after spacer
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // update content height after spacer
 }
 
 void rui_panel_set_content_width(float width) { // override width used for subsequent widgets
@@ -847,7 +954,7 @@ float rui_panel_slider(float height, float value, float minValue, float maxValue
     float newValue = rui_slider(bounds, value, minValue, maxValue); // draw slider using core helper
 
     rui_panelCursorY += height + rui_panelSpacing; // advance cursor after slider
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // update content height
 
     return newValue; // return possibly updated value
 }
@@ -863,7 +970,8 @@ float rui_panel_slider_call(float height, float value, float minValue, float max
 bool rui_panel_toggle(bool value, const char *label) { // toggle integrated with panel layout
     if (!rui_panelActive) return value; // ignore when no panel active
 
-    float height = 24.0f; // default toggle height
+    float height = (float)rui_themeCurrent.textFont.size + 8.0f; // default toggle height from font
+    if (height < 24.0f) height = 24.0f;
     float innerWidth = rui_panelInnerRight - rui_panelInnerLeft; // usable width
     float targetWidth = rui_panelContentWidth; // requested width
     if (targetWidth <= 0.0f || targetWidth > innerWidth) targetWidth = innerWidth; // clamp
@@ -881,7 +989,7 @@ bool rui_panel_toggle(bool value, const char *label) { // toggle integrated with
     bool newValue = rui_toggle(bounds, value, label); // draw toggle using base helper
 
     rui_panelCursorY += height + rui_panelSpacing; // advance cursor
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // update content height
 
     return newValue; // return toggle state
 }
@@ -914,7 +1022,7 @@ bool rui_panel_text_input(float height, rui_text_input *input) { // integrate te
     bool changed = rui_text_input_box(bounds, input); // draw input and handle typing
 
     rui_panelCursorY += height + rui_panelSpacing; // advance cursor after input field
-    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + 30.0f); // update content height
+    rui_contentHeight = rui_panelCursorY - (rui_currentPanel.y + rui_panelHeaderHeight); // update content height
 
     return changed; // return whether text changed
 }
@@ -939,15 +1047,15 @@ void rui_panel_end(void) { // finish panel rendering and handle scrollbars
     if (rui_panelActive) { // only proceed if a panel was begun
         EndScissorMode(); // stop clipping so scrollbar can draw outside content area
 
-        if (rui_panelScrollable && rui_contentHeight > (rui_currentPanel.height - 30)) { // only show scrollbar when needed
-            float viewHeight = rui_currentPanel.height - 30.0f; // visible content height
+        if (rui_panelScrollable && rui_contentHeight > (rui_currentPanel.height - rui_panelHeaderHeight)) { // only show scrollbar when needed
+            float viewHeight = rui_currentPanel.height - rui_panelHeaderHeight; // visible content height
             float maxOffset = rui_contentHeight - viewHeight; // maximum scroll offset possible
             if (maxOffset < 0) maxOffset = 0; // guard against negatives (precision)
 
             // Draw track + thumb
             float ratio = viewHeight / rui_contentHeight; // portion of content visible
             float barHeight = viewHeight * ratio; // scrollbar thumb height proportional to ratio
-            float trackY = rui_currentPanel.y + 30; // scrollbar track start at content top
+            float trackY = rui_currentPanel.y + rui_panelHeaderHeight; // scrollbar track start at content top
             float travel = viewHeight - barHeight; // distance thumb can travel along track
 
             Rectangle scrollTrack = { // rectangle representing scrollbar track

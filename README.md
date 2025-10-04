@@ -107,7 +107,8 @@ Sliders support dragging or clicking the track; toggles focus the entire row, so
 char name[32] = "Player";
 rui_text_input nameInput = rui_text_input_init(name, sizeof(name));
 
-if (rui_panel_text_input(26, &nameInput)) {
+float inputHeight = rui_theme_get()->textFont.size + 10.0f;
+if (rui_panel_text_input(inputHeight, &nameInput)) {
     printf("Name changed: %s\n", name);
 }
 
@@ -148,10 +149,33 @@ rui_theme_set(&theme);
 
 At runtime you can:
 
-- `rui_theme_set(customTheme)` – replace the entire theme (panels, buttons, sliders, toggles, text inputs).
+- `rui_theme_set(customTheme)` – replace the entire theme (panels, text, controls).
 - `rui_theme_reset()` – restore built-in defaults.
 - `rui_theme_get()` – inspect the currently active theme.
 - `rui_set_default_panel_style(style)` / `rui_get_default_panel_style()` – override just the panel style (alignment, colours) while leaving other widget palettes alone.
+
+### Fonts
+
+Fonts live inside the theme. `rui_theme_default()` seeds the struct with raylib’s built-in font, size 20 for content and 18 for titles. Swap them like so:
+
+```c
+rui_theme theme = rui_theme_default();
+theme.textFont.size = 22;          // scale all widget text
+theme.titleFont.size = 26;         // slightly larger headers
+rui_theme_set(&theme);
+
+// Loading a custom font
+Font ui = LoadFontEx("assets/Roboto-Regular.ttf", 48, NULL, 0);
+theme = rui_theme_default();
+theme.textFont.font = ui;
+theme.textFont.size = 24;
+theme.textFont.spacing = 1.5f;
+theme.titleFont = theme.textFont;
+theme.titleFont.size = 30;
+rui_theme_set(&theme);
+```
+
+Keep responsibility for the font’s lifetime—call `UnloadFont(ui);` when you exit if you loaded it yourself.
 
 Remember to update your panel begin calls if you rely on the default style:
 
