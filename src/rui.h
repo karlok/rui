@@ -215,6 +215,8 @@ void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style); /
 // Auto-layout + scroll panels
 void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable); // start auto-layout panel with default style
 void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style); // start panel with explicit style
+void rui_panel_begin_fade(Rectangle bounds, const char *title, bool scrollable, float alpha); // start panel with fade alpha
+void rui_panel_begin_ex_fade(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, float alpha); // styled panel with fade alpha
 bool rui_panel_button(const char *text, float height); // layout-aware button inside current panel
 bool rui_panel_button_call(const char *text, float height, void (*callback)(void *), void *userData); // panel button with callback helper
 void rui_panel_label(const char *text); // layout-aware label using panel style
@@ -228,6 +230,8 @@ bool rui_panel_toggle_call(bool value, const char *label, void (*callback)(bool,
 bool rui_panel_text_input(float height, rui_text_input *input); // text input integrated with panel layout
 bool rui_panel_begin_closable(Rectangle bounds, const char *title, bool scrollable, const char *closeLabel); // begin panel with close button, returns true when pressed
 bool rui_panel_begin_ex_closable(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, const char *closeLabel); // styled closable panel begin helper
+bool rui_panel_begin_closable_fade(Rectangle bounds, const char *title, bool scrollable, float alpha, const char *closeLabel); // closable panel with fade alpha
+bool rui_panel_begin_ex_closable_fade(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, float alpha, const char *closeLabel); // styled closable panel with fade alpha
 void rui_panel_end(void); // finish current panel and draw scrollbar if needed
 
 #ifdef RUI_IMPLEMENTATION // compile implementation when requested
@@ -282,6 +286,10 @@ static Color rui_fadeColor = {0, 0, 0, 255}; // overlay color (alpha overridden 
 static rui_text_input *rui_activeTextInput = NULL; // currently focused text input box
 static bool rui_keyboardCaptured = false; // true when UI takes keyboard focus
 static bool rui_themeInitialized = false; // tracks if theme defaults applied
+static float rui_alphaStack[8] = {1.0f}; // alpha stack for nested fades
+static int rui_alphaTop = 0; // alpha stack index
+static float rui_alphaCurrent = 1.0f; // current multiplied alpha
+static bool rui_panelAlphaApplied = false; // true when current panel pushed alpha
 
 rui_theme rui_theme_default(void); // forward declare helper for header calc
 
@@ -292,6 +300,39 @@ static float rui_calculate_header_height(bool hasTitle) {
                             : ((float)rui_panelPadding + padding * 1.5f);
     if (height < 18.0f) height = 18.0f;
     return height;
+}
+
+static float rui_clamp01(float value) {
+    if (value < 0.0f) return 0.0f;
+    if (value > 1.0f) return 1.0f;
+    return value;
+}
+
+static void rui_push_alpha(float alpha) {
+    alpha = rui_clamp01(alpha);
+    float combined = rui_alphaCurrent * alpha;
+    if (rui_alphaTop < (int)(sizeof(rui_alphaStack)/sizeof(rui_alphaStack[0])) - 1) {
+        rui_alphaTop++;
+        rui_alphaStack[rui_alphaTop] = combined;
+    }
+    rui_alphaCurrent = combined;
+}
+
+static void rui_pop_alpha(void) {
+    if (rui_alphaTop > 0) {
+        rui_alphaTop--;
+        rui_alphaCurrent = rui_alphaStack[rui_alphaTop];
+    } else {
+        rui_alphaCurrent = rui_alphaStack[0];
+    }
+}
+
+static Color rui_apply_alpha(Color color) {
+    float a = (float)color.a * rui_alphaCurrent;
+    if (a < 0.0f) a = 0.0f;
+    if (a > 255.0f) a = 255.0f;
+    color.a = (unsigned char)a;
+    return color;
 }
 
 rui_theme rui_theme_default(void) { // expose default theme values
@@ -335,6 +376,9 @@ const rui_theme *rui_theme_get(void) { // access current theme pointer
 void rui_theme_reset(void) { // restore default theme
     rui_theme theme = rui_theme_default();
     rui_theme_set(&theme);
+    rui_alphaStack[0] = 1.0f;
+    rui_alphaTop = 0;
+    rui_alphaCurrent = 1.0f;
 }
 
 void rui_set_default_panel_style(rui_panel_style style) { // override default panel style independent of theme
@@ -377,7 +421,7 @@ void rui_label(const char *text, Vector2 pos) { // draw plain text label with de
 
 void rui_label_color(const char *text, Vector2 pos, Color color) { // draw text label with supplied color
     const rui_font_style *fs = &rui_themeCurrent.textFont;
-    DrawTextEx(fs->font, text, (Vector2){ pos.x, pos.y }, (float)fs->size, fs->spacing, color); // render text with themed font
+    DrawTextEx(fs->font, text, (Vector2){ pos.x, pos.y }, (float)fs->size, fs->spacing, rui_apply_alpha(color)); // render text with themed font
 }
 
 bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
@@ -388,14 +432,14 @@ bool rui_button(const char *text, Rectangle bounds) { // draw interactive button
     Color bg = hovered ? bs->hover : bs->normal; // choose hover background color
     if (pressed) bg = bs->pressed; // darken when actively pressed
 
-    DrawRectangleRec(bounds, bg); // fill button background
-    DrawRectangleLinesEx(bounds, 2, bs->border); // outline button for contrast
+    DrawRectangleRec(bounds, rui_apply_alpha(bg)); // fill button background
+    DrawRectangleLinesEx(bounds, 2, rui_apply_alpha(bs->border)); // outline button for contrast
 
     const rui_font_style *fs = &rui_themeCurrent.textFont;
     Vector2 textSize = MeasureTextEx(fs->font, text, (float)fs->size, fs->spacing);
     float textX = bounds.x + (bounds.width - textSize.x) * 0.5f;
     float textY = bounds.y + (bounds.height - textSize.y) * 0.5f;
-    DrawTextEx(fs->font, text, (Vector2){ textX, textY }, (float)fs->size, fs->spacing, bs->text); // draw button label
+    DrawTextEx(fs->font, text, (Vector2){ textX, textY }, (float)fs->size, fs->spacing, rui_apply_alpha(bs->text)); // draw button label
 
     return pressed; // return true when clicked
 }
@@ -415,8 +459,8 @@ static bool rui_draw_close_button(Rectangle bounds, const char *label, Color bor
     Color base = hovered ? (Color){210, 80, 80, 255} : (Color){190, 60, 60, 255}; // background tint
     if (pressed) base = (Color){150, 40, 40, 255}; // darker when pressed
 
-    DrawRectangleRec(bounds, base); // fill button
-    DrawRectangleLinesEx(bounds, 2, borderColor); // outline to match panel
+    DrawRectangleRec(bounds, rui_apply_alpha(base)); // fill button
+    DrawRectangleLinesEx(bounds, 2, rui_apply_alpha(borderColor)); // outline to match panel
 
     const char *text = label ? label : "X"; // default label
     const rui_font_style *tf = &rui_themeCurrent.titleFont;
@@ -435,7 +479,7 @@ static bool rui_draw_close_button(Rectangle bounds, const char *label, Color bor
         bounds.x + (bounds.width - textSize.x) * 0.5f,
         bounds.y + (bounds.height - textSize.y) * 0.5f
     };
-    DrawTextEx(tf->font, text, textPos, drawSize, spacing, WHITE); // draw label centered
+    DrawTextEx(tf->font, text, textPos, drawSize, spacing, rui_apply_alpha(WHITE)); // draw label centered
 
     return pressed; // signal click
 }
@@ -451,7 +495,7 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) 
     float trackHeight = 6.0f; // thickness of slider track
     float trackY = bounds.y + (bounds.height - trackHeight) * 0.5f; // center track vertically
     Rectangle track = { bounds.x, trackY, bounds.width, trackHeight }; // track rectangle
-    DrawRectangleRec(track, rui_themeCurrent.slider.track); // draw track background
+    DrawRectangleRec(track, rui_apply_alpha(rui_themeCurrent.slider.track)); // draw track background
 
     float knobWidth = 12.0f; // knob width
     float travel = bounds.width - knobWidth; // horizontal travel distance for knob
@@ -485,8 +529,8 @@ float rui_slider(Rectangle bounds, float value, float minValue, float maxValue) 
 
     Color knobColor = dragging ? rui_themeCurrent.slider.knobDrag
                       : (hovered ? rui_themeCurrent.slider.knobHover : rui_themeCurrent.slider.knob); // knob tint
-    DrawRectangleRec(knob, knobColor); // draw knob
-    DrawRectangleLinesEx(knob, 2, rui_themeCurrent.button.border); // outline knob using button border colour
+    DrawRectangleRec(knob, rui_apply_alpha(knobColor)); // draw knob
+    DrawRectangleLinesEx(knob, 2, rui_apply_alpha(rui_themeCurrent.button.border)); // outline knob using button border colour
 
     return clampedValue; // return potentially updated value
 }
@@ -502,9 +546,9 @@ bool rui_toggle(Rectangle bounds, bool value, const char *label) { // draw check
     if (toggled) value = !value; // toggle value on click
 
     Color border = hovered ? rui_themeCurrent.toggle.borderHover : rui_themeCurrent.toggle.border; // border tint when hovered
-    DrawRectangleLinesEx(box, 2, border); // outline checkbox
+    DrawRectangleLinesEx(box, 2, rui_apply_alpha(border)); // outline checkbox
     Color fillColor = value ? rui_themeCurrent.toggle.fillActive : rui_themeCurrent.toggle.fill; // fill based on state
-    DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, fillColor);
+    DrawRectangleRec((Rectangle){ box.x + 3, box.y + 3, box.width - 6, box.height - 6 }, rui_apply_alpha(fillColor));
 
     if (label) { // draw optional label text
         const rui_font_style *fs = &rui_themeCurrent.textFont;
@@ -513,7 +557,7 @@ bool rui_toggle(Rectangle bounds, bool value, const char *label) { // draw check
             textBounds.x,
             bounds.y + (bounds.height - textSize.y) * 0.5f
         };
-        DrawTextEx(fs->font, label, pos, (float)fs->size, fs->spacing, rui_themeCurrent.toggle.label);
+        DrawTextEx(fs->font, label, pos, (float)fs->size, fs->spacing, rui_apply_alpha(rui_themeCurrent.toggle.label));
     }
 
     return value; // return possibly toggled value
@@ -669,8 +713,8 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
     const rui_text_input_style *tis = &rui_themeCurrent.textInput; // theme colours
     Color borderColor = (rui_activeTextInput == input) ? tis->borderActive
                         : (hovered ? tis->borderHover : tis->border); // highlight when focused
-    DrawRectangleRec(bounds, tis->background); // draw background
-    DrawRectangleLinesEx(bounds, 2, borderColor); // draw border
+    DrawRectangleRec(bounds, rui_apply_alpha(tis->background)); // draw background
+    DrawRectangleLinesEx(bounds, 2, rui_apply_alpha(borderColor)); // draw border
 
     float textHeight = (float)fs->size;
     Vector2 textPos = { bounds.x + 4.0f, bounds.y + (bounds.height - textHeight) * 0.5f }; // baseline for text
@@ -679,7 +723,7 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
                textPos,
                (float)fs->size,
                fs->spacing,
-               tis->text); // draw text contents
+               rui_apply_alpha(tis->text)); // draw text contents
 
     if (rui_activeTextInput == input) { // draw caret when active
         float caretX = textPos.x;
@@ -691,7 +735,7 @@ bool rui_text_input_box(Rectangle bounds, rui_text_input *input) { // draw text 
         }
 
         if (fmodf(input->blinkTimer, 1.0f) < 0.5f) { // blink on for half the time
-            DrawRectangle((int)caretX, (int)textPos.y, 2, fs->size, tis->caret);
+            DrawRectangle((int)caretX, (int)textPos.y, 2, fs->size, rui_apply_alpha(tis->caret));
         }
     }
 
@@ -748,14 +792,14 @@ void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style) { 
         rui_theme_reset();
     }
 
-    DrawRectangleRec(bounds, style.bodyColor); // paint panel background with styled color
-    DrawRectangleLinesEx(bounds, 2, style.borderColor); // outline panel borders using styled color
+    DrawRectangleRec(bounds, rui_apply_alpha(style.bodyColor)); // paint panel background with styled color
+    DrawRectangleLinesEx(bounds, 2, rui_apply_alpha(style.borderColor)); // outline panel borders using styled color
 
     if (title) { // draw optional title bar when provided
         float headerHeight = rui_calculate_header_height(true);
         Rectangle titleBar = { bounds.x, bounds.y, bounds.width, headerHeight };
-        DrawRectangleRec(titleBar, style.titleColor);
-        DrawRectangleLinesEx(titleBar, 1, style.borderColor);
+        DrawRectangleRec(titleBar, rui_apply_alpha(style.titleColor));
+        DrawRectangleLinesEx(titleBar, 1, rui_apply_alpha(style.borderColor));
 
         const rui_font_style *tf = &rui_themeCurrent.titleFont;
         float paddingY = (headerHeight - (float)tf->size) * 0.5f;
@@ -765,18 +809,21 @@ void rui_panel_ex(Rectangle bounds, const char *title, rui_panel_style style) { 
                    (Vector2){ bounds.x + 6.0f, bounds.y + paddingY },
                    (float)tf->size,
                    tf->spacing,
-                   style.titleTextColor);
+                   rui_apply_alpha(style.titleTextColor));
     }
 }
 
 // --- Auto-layout + Scrollable Panels ---
-void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable) { // start a managed panel with default style
-    rui_panel_begin_ex(bounds, title, scrollable, rui_panelStyleDefault); // call extended version with default style
-}
-
-void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style) { // start panel with custom style
+static void rui_panel_begin_internal(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, float alpha) {
     if (!rui_themeInitialized) {
         rui_theme_reset();
+    }
+
+    rui_panelAlphaApplied = false;
+    float clampedAlpha = rui_clamp01(alpha);
+    if (clampedAlpha != 1.0f) {
+        rui_push_alpha(clampedAlpha);
+        rui_panelAlphaApplied = true;
     }
 
     rui_currentPanel = bounds; // remember panel rectangle for children
@@ -835,6 +882,22 @@ void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, ru
                      (int)(bounds.y + rui_panelHeaderHeight),
                      (int)bounds.width,
                      (int)(bounds.height - rui_panelHeaderHeight)); // clip subsequent draws to panel interior
+}
+
+void rui_panel_begin(Rectangle bounds, const char *title, bool scrollable) { // start a managed panel with default style
+    rui_panel_begin_internal(bounds, title, scrollable, rui_panelStyleDefault, 1.0f);
+}
+
+void rui_panel_begin_ex(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style) { // start panel with custom style
+    rui_panel_begin_internal(bounds, title, scrollable, style, 1.0f);
+}
+
+void rui_panel_begin_fade(Rectangle bounds, const char *title, bool scrollable, float alpha) { // start default panel with fade alpha
+    rui_panel_begin_internal(bounds, title, scrollable, rui_panelStyleDefault, alpha);
+}
+
+void rui_panel_begin_ex_fade(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, float alpha) { // start styled panel with fade alpha
+    rui_panel_begin_internal(bounds, title, scrollable, style, alpha);
 }
 
 bool rui_panel_button(const char *text, float height) { // add button within active panel
@@ -1028,18 +1091,26 @@ bool rui_panel_text_input(float height, rui_text_input *input) { // integrate te
 }
 
 bool rui_panel_begin_closable(Rectangle bounds, const char *title, bool scrollable, const char *closeLabel) { // begin default-styled closable panel
-    rui_panelCloseRequested = true;
-    rui_panelCloseLabel = closeLabel;
-    rui_panelClosePressed = false;
-    rui_panel_begin(bounds, title, scrollable);
-    return rui_panelClosePressed;
+    return rui_panel_begin_closable_fade(bounds, title, scrollable, 1.0f, closeLabel);
 }
 
 bool rui_panel_begin_ex_closable(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, const char *closeLabel) { // styled panel with close button
+    return rui_panel_begin_ex_closable_fade(bounds, title, scrollable, style, 1.0f, closeLabel);
+}
+
+bool rui_panel_begin_closable_fade(Rectangle bounds, const char *title, bool scrollable, float alpha, const char *closeLabel) {
     rui_panelCloseRequested = true;
     rui_panelCloseLabel = closeLabel;
     rui_panelClosePressed = false;
-    rui_panel_begin_ex(bounds, title, scrollable, style);
+    rui_panel_begin_fade(bounds, title, scrollable, alpha);
+    return rui_panelClosePressed;
+}
+
+bool rui_panel_begin_ex_closable_fade(Rectangle bounds, const char *title, bool scrollable, rui_panel_style style, float alpha, const char *closeLabel) {
+    rui_panelCloseRequested = true;
+    rui_panelCloseLabel = closeLabel;
+    rui_panelClosePressed = false;
+    rui_panel_begin_ex_fade(bounds, title, scrollable, style, alpha);
     return rui_panelClosePressed;
 }
 
@@ -1065,13 +1136,13 @@ void rui_panel_end(void) { // finish panel rendering and handle scrollbars
                 viewHeight // track height matches viewable content
             };
 
-            float barY = trackY + (rui_scrollOffset / maxOffset) * travel; // thumb position based on scroll fraction
+            float barY = trackY + (maxOffset > 0 ? (rui_scrollOffset / maxOffset) * travel : 0.0f); // thumb position based on scroll fraction
             Rectangle scrollBar = {scrollTrack.x, barY, scrollTrack.width, barHeight}; // rectangle for draggable thumb
 
-            DrawRectangleRec(scrollTrack, LIGHTGRAY); // draw track background
+            DrawRectangleRec(scrollTrack, rui_apply_alpha(LIGHTGRAY)); // draw track background
             bool hovered = CheckCollisionPointRec(rui_mouse, scrollBar); // detect hover over thumb
             Color barColor = rui_draggingScrollbar ? BLUE : (hovered ? GRAY : DARKGRAY); // change color when dragging or hovered
-            DrawRectangleRec(scrollBar, barColor); // draw thumb with computed color
+            DrawRectangleRec(scrollBar, rui_apply_alpha(barColor)); // draw thumb with computed color
 
             // Drag input
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hovered) { // start dragging when thumb clicked
@@ -1107,6 +1178,11 @@ void rui_panel_end(void) { // finish panel rendering and handle scrollbars
         }
         rui_panelActive = false; // clear active flag until next panel begin
         rui_panelContentWidth = 0.0f; // reset content width override after finishing panel
+
+        if (rui_panelAlphaApplied) {
+            rui_pop_alpha();
+            rui_panelAlphaApplied = false;
+        }
     }
 }
 

@@ -69,6 +69,8 @@ Auto-layout panels expose helpers:
 | `rui_panel_spacer` | Adds vertical gap. |
 | `rui_panel_set_content_width` | Temporarily narrow widgets (e.g., to center a smaller control). |
 
+`_ex` suffix = “extended.” Those variants let you provide a custom `rui_panel_style` (and for `*_fade`, an alpha) while the base helper sticks to the current theme defaults.
+
 ## Buttons & Callbacks
 
 Every button helper returns `true` when clicked. The `_call` variants also invoke a callback:
@@ -173,9 +175,16 @@ theme.textFont.spacing = 1.5f;
 theme.titleFont = theme.textFont;
 theme.titleFont.size = 30;
 rui_theme_set(&theme);
+
+// Adding emoji glyphs (supply UTF-32 code points up front)
+int emojiCodes[] = { 0x1F34E, 0x1F5E1, 0x1F6E1, 0x1F9EA, 0x1F48E, 0x1F525, 0x2699, 0x1F31F, 0 };
+Font emoji = LoadFontEx("assets/NotoEmoji-Regular.ttf", 64, emojiCodes, (sizeof(emojiCodes)/sizeof(int)) - 1);
+theme = rui_theme_default();
+theme.textFont.font = emoji;
+rui_theme_set(&theme);
 ```
 
-Keep responsibility for the font’s lifetime—call `UnloadFont(ui);` when you exit if you loaded it yourself.
+Keep responsibility for the font’s lifetime—call `UnloadFont(ui);` / `UnloadFont(emoji);` when you exit if you loaded them yourself. Emoji will only render if the font you load actually contains those glyphs.
 
 Remember to update your panel begin calls if you rely on the default style:
 
@@ -193,6 +202,7 @@ rui_panel_begin_ex(bounds, "Settings", true, tinted);
 
 - Passing `true` to `rui_panel_begin` enables wheel/drag scrolling automatically when content exceeds the viewport.
 - For modal panes, use `rui_panel_begin_closable` (or `_ex_closable` for custom styles). The function returns `true` on the frame the close button is pressed—hide or destroy the panel in response.
+- Need a fade? the `_fade` variants (`rui_panel_begin_ex_fade`, `rui_panel_begin_ex_closable_fade`, etc.) take an alpha from 0–1 so you can animate panels in and out while leaving the rest of the UI unaffected.
 
 ## Example Structure
 
