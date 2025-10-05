@@ -38,6 +38,16 @@ int main(void)
     theme.titleFont.size = 20;
     rui_theme_set(&theme);
 
+    // Loading a custom font
+    Font ui = LoadFontEx("src/assets/Anonymous_Pro.ttf", 48, NULL, 0);
+    theme = rui_theme_default();
+    theme.textFont.font = ui;
+    theme.textFont.size = 16;
+    theme.textFont.spacing = 1.5f;
+    theme.titleFont = theme.textFont;
+    theme.titleFont.size = 20;
+    rui_theme_set(&theme);
+
     float nameFieldHeight = theme.textFont.size + 10.0f;
 
     // Game state
