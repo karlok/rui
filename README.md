@@ -2,6 +2,8 @@
 
 `rui.h` is a single-header UI micro-library for [raylib](https://www.raylib.com/) that covers the basics you need for quick prototypes: panels (with optional scrolling), labels, buttons, sliders, toggles, text inputs, and fade overlays. Everything lives in one file that you can drop into a jam project, tweak, and ship.
 
+Note there is a branch `with_fonts` that includes custom font support and font styling. But I have not tested it, so it is experimental. Use at your own joy and risk! :)
+
 ## Installation
 
 1. Copy `src/rui.h` into your project (keeping the `src/` folder is optional).
